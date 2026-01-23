@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../../ADATIME/')
+sys.path.append('..')
 import torch
 import torch.nn.functional as F
 from torchmetrics import Accuracy, AUROC, F1Score
@@ -11,12 +11,12 @@ import warnings
 import sklearn.exceptions
 import collections
 
-from torchmetrics import Accuracy, AUROC, F1Score
 from dataloader.dataloader import data_generator
 from configs.data_model_configs import get_dataset_class
 from configs.hparams import get_hparams_class
 from algorithms.algorithms import get_algorithm_class
 from models.models import get_backbone_class
+from torch import nn
 
 warnings.filterwarnings("ignore", category=sklearn.exceptions.UndefinedMetricWarning)
 
@@ -94,7 +94,9 @@ class AbstractTrainer(object):
     def evaluate(self, test_loader):
         feature_extractor = self.algorithm.feature_extractor.to(self.device)
         classifier = self.algorithm.classifier.to(self.device)
-
+        if hasattr(self.algorithm, 'freq_adapter'):
+            freq_adapter = self.algorithm.freq_adapter.to(self.device)
+            feature_extractor = nn.Sequential(freq_adapter, feature_extractor)
         feature_extractor.eval()
         classifier.eval()
 
@@ -106,7 +108,7 @@ class AbstractTrainer(object):
                 labels = labels.view((-1)).long().to(self.device)
 
                 # forward pass
-                features, seq_features = feature_extractor(data)
+                features = feature_extractor(data)[0]
                 predictions = classifier(features)
 
                 # compute loss

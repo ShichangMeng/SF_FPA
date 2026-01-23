@@ -12,14 +12,15 @@ class Load_Dataset(Dataset):
 
         # Load samples
         x_data = dataset["samples"]
-
+        if isinstance(x_data, np.ndarray):
+            x_data = torch.from_numpy(x_data)
         # Check samples dimensions.
         # The dimension of the data is expected to be (N, C, L)
         # where N is the #samples, C: #channels, and L is the sequence length
         if len(x_data.shape) == 2:
             x_data = x_data.unsqueeze(1)
         elif len(x_data.shape) == 3 and x_data.shape[1] != self.num_channels:
-            x_data = x_data.transpose(1, 2)
+            x_data = x_data.permute(0, 2, 1)
 
         # Convert to torch tensor
         if isinstance(x_data, np.ndarray):
@@ -53,7 +54,7 @@ class Load_Dataset(Dataset):
 
 def data_generator(data_path, domain_id, dataset_configs, hparams, dtype):
     # loading dataset file from path
-    dataset_file = torch.load(os.path.join(data_path, f"{dtype}_{domain_id}.pt"))
+    dataset_file = torch.load(os.path.join(data_path, f"{dtype}_{domain_id}.pt"), weights_only=False)
 
     # Loading datasets
     dataset = Load_Dataset(dataset_file, dataset_configs)

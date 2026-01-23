@@ -102,11 +102,11 @@ class Trainer(AbstractTrainer):
 
 if __name__ == "__main__":
     # ========= Select the DA methods ============
-    parser.add_argument('--da_method', default='MAPU', type=str,
+    parser.add_argument('--da_method', default='TF_MAPU_Anchor_sink', type=str,
                         help='DANN, Deep_Coral, WDGRL, MMDA, VADA, DIRT, CDAN, ADDA, HoMM, CoDATS')
 
     # ========= Select the DATASET ==============
-    parser.add_argument('--data_path', default=r'../../data', type=str, help='Path containing datase2t')
+    parser.add_argument('--data_path', default='dataset', type=str, help='Path containing datase2t')
     parser.add_argument('--dataset', default='HAR', type=str, help='Dataset of choice: (WISDM - EEG - HAR - HHAR_SA)')
 
     # ========= Select the BACKBONE ==============
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     parser.add_argument('--sweep_project_wandb', default='MAPU_test', type=str, help='Project name in Wandb')
     parser.add_argument('--wandb_entity', type=str,  help='Entity name in Wandb (can be left blank if there is a default entity)')
     parser.add_argument('--hp_search_strategy', default="random", type=str, help='The way of selecting hyper-parameters (random-grid-bayes). in wandb see:https://docs.wandb.ai/guides/sweeps/configuration')
-    parser.add_argument('--metric_to_minimize', default="src_risk", type=str,  help='select one of: (src_risk - trg_risk - few_shot_trg_risk - dev_risk)')
+    parser.add_argument('--metric_to_minimize', default="trg_risk", type=str,  help='select one of: (src_risk - trg_risk - few_shot_trg_risk - dev_risk)')
 
     # ========  Experiments Name ================
     parser.add_argument('--save_dir', default='experiments_logs/sweep_logs', type=str,
