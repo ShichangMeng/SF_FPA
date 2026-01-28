@@ -236,9 +236,6 @@ class FrequencyAdaptationLayer(nn.Module):
         delta_phase = self.phase_mlp(phase) * 0.1 # 限制相位改变量 (比如最多 0.1 弧度)
         
         # 3. 叠加修正
-        # 幅值通常是乘性或者加性，这里用加性 (且保证非负，虽然 polar 可以处理负幅值)
-        # 为了物理意义，我们也可以用乘性: amp * (1 + delta_amp)
-        # 这里按你要求的 "加上这个幅值"
         new_amp = amp * (1 + delta_amp)
         new_phase = phase + (1 + delta_phase)
         
@@ -250,3 +247,103 @@ class FrequencyAdaptationLayer(nn.Module):
         x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
         
         return x_adapted
+
+class Signal_Recover(nn.Module):
+    def __init__(self, configs, hparams):
+        super(Signal_Recover, self).__init__()
+        self.seq_length = configs.sequence_len
+        self.num_channels = configs.input_channels
+        self.hid_dim = configs.AR_hid_dim_raw
+        # input size: batch_size, 9 channel, 128 seq_length
+        self.rnn_encoder = nn.LSTM(input_size=self.num_channels, hidden_size=hparams['AR_hid_dim'], batch_first=True)
+        self.rnn_decoder = nn.LSTM(input_size=hparams['AR_hid_dim'], hidden_size=self.hid_dim, batch_first=True)
+
+    def forward(self, x):
+        ### x size (bs, N, L)
+
+        x = x.transpose(-1,-2)
+        out, (h, c) = self.rnn_encoder(x)
+        out, (h, c) = self.rnn_decoder(out)
+
+        out = out.transpose(-1,-2)
+        # take the last time step
+        return out
+    
+def masking2(x, num_splits=8, num_masked=4): ## also segment v1
+    # Reshape input tensor to create patches
+    ### Input size (bs, num_channels, time_length)
+    patches = rearrange(x, 'b n (p l) -> b n p l', p=num_splits)
+    masked_patches = patches.clone()
+
+    # Generate random indices for masking
+    rand_indices = torch.rand(x.shape[1], num_splits).argsort(dim=-1)
+    selected_indices = rand_indices[:, :num_masked]
+    # Create a mask tensor
+    mask = torch.zeros_like(patches, dtype=torch.bool)
+
+    # Create a batch index tensor
+    batch_indices = torch.arange(x.shape[0]).unsqueeze(1).unsqueeze(2)
+
+    # Apply the mask using advanced indexing
+    mask[batch_indices, torch.arange(x.shape[1]).view(1, -1, 1), selected_indices.unsqueeze(0).expand(x.shape[0], -1, -1)] = True  # 32,1,1  1,6,1  32,6,1
+
+    # Mask the selected patches
+    masked_patches[mask] = 0
+
+    # Reshape the masked patches and the mask back to the original shape
+    mask = rearrange(mask, 'b n p l -> b n (p l)')
+    masked_x = rearrange(masked_patches, 'b n p l -> b n (p l)', p=num_splits)
+
+    return masked_x, [mask,rand_indices]
+
+def segment_mask_v1(x, mask_indices, num_segments, num_removed=2):
+    # Reshape input tensor to create patches
+    ### Input size (bs, num_channels, time_length)
+    patches = rearrange(x, 'a b (p l) -> a b p l', p=num_segments)
+
+
+    masked_patches = patches.clone()
+
+    # Generate random indices for masking
+    selected_indices = mask_indices[:, -num_removed:]
+    # Create a mask tensor
+    mask = torch.zeros_like(patches, dtype=torch.bool)
+
+    # Create a batch index tensor
+    batch_indices = torch.arange(x.shape[0]).unsqueeze(1).unsqueeze(2)
+
+    # Apply the mask using advanced indexing
+    mask[batch_indices, torch.arange(x.shape[1]).view(1, -1, 1), selected_indices.unsqueeze(0).expand(x.shape[0], -1, -1)] = True  # 32,1,1  1,6,1  32,6,1
+
+    # Mask the selected patches
+    masked_patches[mask] = 0
+
+    # Reshape the masked patches and the mask back to the original shape
+    masked_x = rearrange(masked_patches, 'a b p l -> a b (p l)', p=num_segments)
+
+    return masked_x
+
+def segment_mask_v3(x, posi, padding, num_segments, num_removed=2):
+    # Reshape input tensor to create patches
+    ### Input size (bs, num_channels, time_length)
+    patches = rearrange(x, 'a b (p l) -> a b p l', p=num_segments)
+
+
+    masked_patches = patches.clone()
+
+    if posi == 'first':
+        if padding:
+            masked_patches[:, :, :num_removed, :] = 0
+        else:
+            masked_patches = masked_patches[:,:,num_removed:,:]
+    elif posi == 'last':
+        if padding:
+            masked_patches[:, :, -num_removed:, :] = 0
+        else:
+            masked_patches = masked_patches[:, :, :-num_removed, :]
+    else:
+        raise NotImplementedError('Not accurate position for segments')
+    p = num_segments if padding else num_segments-num_removed
+    masked_x = rearrange(masked_patches, 'a b p l -> a b (p l)', p=p)
+
+    return masked_x

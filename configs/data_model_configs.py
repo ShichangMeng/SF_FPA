@@ -85,6 +85,8 @@ class FD():
         self.intra_only = True
         self.num_splits = 8
 
+        self.AR_hid_dim_raw = self.input_channels
+
 class HAR():
     def __init__(self):
         super(HAR, self)
@@ -162,6 +164,7 @@ class WISDM(object):
 
         self.intra_only = False
         self.num_splits = 8
+        self.AR_hid_dim_raw = self.input_channels
 
 class HHAR_SA(object):  ## HHAR dataset, SAMSUNG device.
     def __init__(self):
@@ -218,7 +221,7 @@ class Boiler(object):
         self.num_classes = 2
         self.sequence_len = 36
         self.shuffle = True
-        self.drop_last = True
+        self.drop_last = False
         self.normalize = True
 
         # model configs
@@ -249,6 +252,7 @@ class Boiler(object):
         self.disc_hid_dim = 100
 
         self.fourier_modes = 18
-        self.AR_hid_dim = 64
+        self.AR_hid_dim = 32
         self.intra_only = True
-        self.num_splits = 2
+        self.num_splits = 4
+        self.AR_hid_dim_raw = self.input_channels

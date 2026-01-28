@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import torch.nn as nn
+from einops import rearrange
 
 class ConditionalEntropyLoss(torch.nn.Module):
     def __init__(self):
@@ -236,6 +237,185 @@ def evident_dl(predictions):
 
     return p, evident_var, evident_entropy
 
+def EntropyLoss_single(input_):
+    input_ = nn.Softmax(dim=1)(input_)
+    entropy = -input_ * torch.log(input_ + 1e-5)
+    entropy = torch.sum(entropy, dim=1)
+    return entropy
+
+def Temporal_EntropyLoss_v1(Recovered_inputs, bs):
+    ## recovered_inputs are list, each having (n*bs, out)
+    ## n represents how many segments are used ti capture temporal dependency
+
+    entropy_single = EntropyLoss_single(Recovered_inputs)
+    entropy_single = rearrange(entropy_single, '(b n) -> b n',b=bs)
+    entropy_1 = entropy_single.unsqueeze(1)
+    entropy_2 = entropy_single.unsqueeze(2)
+
+    entropy_diff = torch.abs(entropy_1 - entropy_2)
 
 
+    entropy_src_like = EntropyLoss(Recovered_inputs)
 
+    loss_entropy_diff = torch.mean(entropy_diff)
+
+    return entropy_src_like + 0.1*loss_entropy_diff
+
+def Bank_info_max_anchor_min(model, original_data, recovered_data, recovered_data_feat, entropy_bank, sample_bank,
+                               classifier, percent, temperature, detach):
+    # model.eval()
+
+    num_samples = recovered_data.size(0)
+
+    # Compute number of samples with lowest entropy values for anchor
+    num_low_entropy_samples = int(num_samples * percent)
+    num_low_entropy_samples = max(1, num_low_entropy_samples)
+
+    recovered_data_pred = classifier(recovered_data_feat)
+    recovered_data_entropy = EntropyLoss_single(recovered_data_pred)
+
+    # Select lowest entropy samples
+    _, low_indices = torch.topk(entropy_bank, num_low_entropy_samples, largest=False)
+    anchor_recovered_samples = sample_bank[low_indices]
+    anchor_sample = anchor_recovered_samples.mean(dim=0, keepdim=True)
+
+    # Obtain features from the model
+    anchor_sample_feat, _ = model(anchor_sample)
+    original_data_feat, _ = model(original_data)
+    # _, recovered_data_feat = model(recovered_data)  # Already provided as an argument
+
+    # Normalize features
+    anchor_sample_feat = F.normalize(anchor_sample_feat, dim=-1)
+    original_data_feat = F.normalize(original_data_feat, dim=-1)
+    recovered_data_feat = F.normalize(recovered_data_feat, dim=-1)
+
+    # Compute similarities (positive and negative)
+    positive_similarity = torch.mm(recovered_data_feat, anchor_sample_feat.t()) / temperature
+
+    negative_similarity_original = torch.mm(recovered_data_feat, original_data_feat.t()) / temperature
+    negative_similarity_recovered = torch.mm(recovered_data_feat, recovered_data_feat.t()) / temperature
+
+    # Mask the diagonal to avoid comparing the same samples
+    mask = torch.eye(num_samples, device=negative_similarity_original.device).bool()
+
+    negative_similarity_original = negative_similarity_original.masked_select(mask).view(num_samples, 1)
+
+    negative_similarity_recovered = negative_similarity_recovered.masked_select(~mask).view(num_samples,
+                                                                                            num_samples - 1)
+    # Combine negative similarities
+    negative_similarity = torch.cat([negative_similarity_original, negative_similarity_recovered], dim=1)
+
+    # Label for cross-entropy (all positives are first)
+    labels = torch.zeros(num_samples, dtype=torch.long, device=recovered_data_feat.device)
+
+    # Combine positive and negative similarities
+    logits = torch.cat([positive_similarity, negative_similarity], dim=1)
+
+    log_probs = F.log_softmax(logits, dim=1)
+
+    # Gather the log-probabilities corresponding to the correct class
+    log_probs_for_labels = log_probs.gather(1, labels.unsqueeze(1)).squeeze(1)  # Shape: (batch_size,)
+
+    # Compute the weighted loss
+    if detach:
+        recovered_data_entropy = recovered_data_entropy.detach()
+    weighted_loss = - (recovered_data_entropy * log_probs_for_labels).mean()
+
+    # Return the total loss and additional metrics
+    return weighted_loss, recovered_data_entropy
+
+class CORAL(nn.Module):
+    def __init__(self):
+        super(CORAL, self).__init__()
+
+    def forward(self, source, target):
+        d = source.data.shape[1]
+        ns, nt = source.data.shape[0], target.data.shape[0]
+        # source covariance
+        xm = torch.mean(source, 0, keepdim=True) - source
+        xc = xm.t() @ xm / (ns - 1)
+
+        # target covariance
+        xmt = torch.mean(target, 0, keepdim=True) - target
+        xct = xmt.t() @ xmt / (nt - 1)
+
+        # frobenius norm between source and target
+        loss = torch.mul((xc - xct), (xc - xct))
+        loss = torch.sum(loss) / (4 * d * d)
+        return loss
+    
+class SupConLoss(torch.nn.Module):
+    """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+    It also supports the unsupervised contrastive loss in SimCLR"""
+
+    def __init__(self, device, temperature=0.07, contrast_mode='all'):
+        super(SupConLoss, self).__init__()
+        self.temperature = temperature
+        self.contrast_mode = contrast_mode
+        self.device = device
+
+    def forward(self, features, labels=None, mask=None):
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
+        device = self.device  # 'cuda' #(torch.device('cuda')
+
+
+        batch_size = features.shape[0]
+
+        prediction1 = labels.contiguous().view(-1, 1)
+        mask = torch.eq(prediction1, prediction1.T).float().to(device)
+
+
+        contrast_count = 1
+        contrast_feature = features
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+
+        # compute logits
+        anchor_dot_contrast = torch.div(
+            torch.matmul(anchor_feature, contrast_feature.T),
+            self.temperature)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+        logits = anchor_dot_contrast - logits_max.detach()
+
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask), 1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device), 0)
+        mask = mask * logits_mask
+
+        # compute log_prob
+
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        mask_sum = mask.sum(1)
+        zeros_idx = torch.where(mask_sum == 0)[0]
+        mask_sum[zeros_idx] = 1
+
+        # compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask_sum
+
+        # loss
+        # loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = - 1 * mean_log_prob_pos
+        loss = loss.mean()
+        return loss
