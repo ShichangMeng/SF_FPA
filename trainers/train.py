@@ -83,12 +83,12 @@ class Trainer(AbstractTrainer):
 
 if __name__ == "__main__":
     # ========  Experiments Name ================
-    parser.add_argument('--save_dir', default=r'MAPU_SFDA_TS/exp0127', type=str,
+    parser.add_argument('--save_dir', default=r'MAPU_SFDA_TS/exp0130', type=str,
                         help='Directory containing all experiments')
-    parser.add_argument('-run_description', default=None, type=str, help='Description of run, if none, DA method name will be used')
+    parser.add_argument('-run_description', default='gmm_0.5', type=str, help='Description of run, if none, DA method name will be used')
 
     # ========= Select the DA methods ===========
-    parser.add_argument('--da_method', default='TF_MAPU_Anchor_freq_gmm', type=str, help='SHOT, AaD, NRC, MAPU, CESFDA')
+    parser.add_argument('--da_method', default='MAPU_Anchor_freq_gmm', type=str, help='SHOT, AaD, NRC, MAPU, CESFDA')
 
     # ========= Select the DATASET ==============
     parser.add_argument('--data_path', default='dataset', type=str, help='Path containing dataset')

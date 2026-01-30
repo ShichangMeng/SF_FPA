@@ -180,7 +180,7 @@ class FrequencyAdaptationLayer(nn.Module):
     2. 使用 MLP 预测 Δ幅值 和 Δ相位
     3. 叠加 Δ 并反变换回时域 (iFFT)
     """
-    def __init__(self, seq_len, channels, hidden_dim=64):
+    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, hidden_dim=64):
         super(FrequencyAdaptationLayer, self).__init__()
         
         # rfft 后的频率维度长度
@@ -232,8 +232,8 @@ class FrequencyAdaptationLayer(nn.Module):
         # 注意：amp 和 phase 的形状是 [B, C, Freq_Len]
         # nn.Linear 默认作用在最后一个维度，所以正好
 
-        delta_amp = self.amp_mlp(amp) * 0.1  # 乘以系数限制初始扰动大小
-        delta_phase = self.phase_mlp(phase) * 0.1 # 限制相位改变量 (比如最多 0.1 弧度)
+        delta_amp = self.amp_mlp(amp) * 0.2  # 乘以系数限制初始扰动大小
+        delta_phase = self.phase_mlp(phase) * 0.2 # 限制相位改变量 (比如最多 0.1 弧度)
         
         # 3. 叠加修正
         new_amp = amp * (1 + delta_amp)

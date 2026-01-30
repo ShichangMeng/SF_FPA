@@ -1,0 +1,4 @@
+wandb_version: 1
+
+ent_loss_wt:
+  value: 0.5

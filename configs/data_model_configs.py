@@ -47,7 +47,8 @@ class FD():
     def __init__(self):
         super(FD, self).__init__()
         self.sequence_len = 5120
-        self.scenarios = [("0", "1"), ("1", "2"), ("3", "1"), ("1", "0"), ("2", "3")]
+        # self.scenarios = [("0", "1"), ("1", "2"), ("3", "1"), ("1", "0"), ("2", "3")]
+        self.scenarios = [("0", "1"), ("0", "2"), ("0", "3"), ("1", "0"), ("1", "3"), ("2", "0"), ("2", "1"), ("3", "0"), ("3", "2")]
         self.class_names = ['Healthy', 'D1', 'D2']
         self.num_classes = 3
         self.shuffle = True

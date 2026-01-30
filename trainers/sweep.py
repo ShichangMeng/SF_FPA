@@ -1,6 +1,5 @@
 import sys
-
-sys.path.append('../')
+sys.path.append('./')
 import torch
 import torch.nn.functional as F
 import os
@@ -56,7 +55,7 @@ class Trainer(AbstractTrainer):
 
     def train(self):
         run = wandb.init(config=self.hparams, dir=self.home_path)
-
+        self.hparams.update(wandb.config)
         # create tables for results and risks
         columns = ["scenario", "run", "acc", "f1_score", "auroc"]
         table_results = wandb.Table(columns=columns, allow_mixed_types=True)
@@ -102,12 +101,12 @@ class Trainer(AbstractTrainer):
 
 if __name__ == "__main__":
     # ========= Select the DA methods ============
-    parser.add_argument('--da_method', default='TF_MAPU_Anchor_sink', type=str,
+    parser.add_argument('--da_method', default='MAPU_Anchor_freq_gmm', type=str,
                         help='DANN, Deep_Coral, WDGRL, MMDA, VADA, DIRT, CDAN, ADDA, HoMM, CoDATS')
 
     # ========= Select the DATASET ==============
     parser.add_argument('--data_path', default='dataset', type=str, help='Path containing datase2t')
-    parser.add_argument('--dataset', default='HAR', type=str, help='Dataset of choice: (WISDM - EEG - HAR - HHAR_SA)')
+    parser.add_argument('--dataset', default='FD', type=str, help='Dataset of choice: (WISDM - EEG - HAR - HHAR_SA)')
 
     # ========= Select the BACKBONE ==============
     parser.add_argument('--backbone', default='CNN', type=str, help='Backbone of choice: (CNN - RESNET18 - TCN)')
@@ -118,20 +117,20 @@ if __name__ == "__main__":
     parser.add_argument('-run_description', default=None, type=str, help='Description of run, if none, DA method name will be used')
 
     # ======== sweep settings =====================
-    parser.add_argument('--num_sweeps', default=1, type=str, help='Number of sweep runs')
+    parser.add_argument('--num_sweeps', default=25, type=str, help='Number of sweep runs')
 
     # We run sweeps using wandb plateform, so next parameters are for wandb.
-    parser.add_argument('--sweep_project_wandb', default='MAPU_test', type=str, help='Project name in Wandb')
+    parser.add_argument('--sweep_project_wandb', default='MAPU_Anchor_freq_gmm_param', type=str, help='Project name in Wandb')
     parser.add_argument('--wandb_entity', type=str,  help='Entity name in Wandb (can be left blank if there is a default entity)')
-    parser.add_argument('--hp_search_strategy', default="random", type=str, help='The way of selecting hyper-parameters (random-grid-bayes). in wandb see:https://docs.wandb.ai/guides/sweeps/configuration')
+    parser.add_argument('--hp_search_strategy', default="bayes", type=str, help='The way of selecting hyper-parameters (random-grid-bayes). in wandb see:https://docs.wandb.ai/guides/sweeps/configuration')
     parser.add_argument('--metric_to_minimize', default="trg_risk", type=str,  help='select one of: (src_risk - trg_risk - few_shot_trg_risk - dev_risk)')
 
     # ========  Experiments Name ================
-    parser.add_argument('--save_dir', default='experiments_logs/sweep_logs', type=str,
+    parser.add_argument('--save_dir', default='MAPU_SFDA_TS/exp0128/sweep_logs', type=str,
                         help='Directory containing all experiments')
 
     args = parser.parse_args()
 
     trainer = Trainer(args)
 
-    trainer.train()
+    trainer.sweep()

@@ -26,6 +26,7 @@ class FD():
             'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.2, 'phase_scale': 0.2,},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
@@ -111,6 +112,7 @@ class WISDM():
             'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.1, 'phase_scale': 0.1,},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
@@ -168,6 +170,7 @@ class Boiler():
             'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
             'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0, 'target_cls_wt': 0.15,},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.1, 'phase_scale': 0.1,},
             'TemSR': {
                      'pre_learning_rate': 0.003, 'learning_rate': 0.000007, 'ent_loss_wt': 4.87809,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
