@@ -124,8 +124,7 @@ class WISDM(object):
         self.class_names = ['walk', 'jog', 'sit', 'stand', 'upstairs', 'downstairs']
         self.sequence_len = 128
         # Closed Set DA
-        self.scenarios = [("2", "32"), ("4", "15"),("7", "30"),('12','7'), ('12','19'),('18','20'),\
-                          ('20','30'), ("21", "31"),("25", "29"), ('26','2')]
+        self.scenarios = [("2", "32"), ("7", "30"), ('18','20'), ('20','30'), ('26','2')]
         self.num_classes = 6
         self.shuffle = True
         self.drop_last = False

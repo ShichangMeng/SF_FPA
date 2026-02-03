@@ -1,0 +1,6 @@
+wandb_version: 1
+
+amp_scale:
+  value: 0.30101326366325554
+phase_scale:
+  value: 0.4230523231277512

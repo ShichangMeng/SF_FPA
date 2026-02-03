@@ -188,16 +188,16 @@ class TargetTest(AbstractTrainer):
 
 if __name__ == "__main__":
     # ========  Experiments Name ================
-    parser.add_argument('--save_dir', default='MAPU_SFDA_TS/experiments_logs', type=str, help='Directory containing all experiments')
-    parser.add_argument('-run_description', default='stride=3_featurelen=25_TFMAPU', type=str, help='Description of run, if none, DA method name will be used')
+    parser.add_argument('--save_dir', default='MAPU_SFDA_TS/exp0130', type=str, help='Directory containing all experiments')
+    parser.add_argument('-run_description', default=None, type=str, help='Description of run, if none, DA method name will be used')
 
     # ========= Select the DA methods ============
-    parser.add_argument('--da_method', default='TF_MAPU', type=str,
+    parser.add_argument('--da_method', default='MAPU', type=str,
                         help='')
 
     # ========= Select the DATASET ==============
     parser.add_argument('--data_path', default='dataset', type=str, help='Path containing dataset')
-    parser.add_argument('--dataset', default='EEG', type=str, help='Dataset of choice: (WISDM - EEG - HAR - HHAR_SA)')
+    parser.add_argument('--dataset', default='FD', type=str, help='Dataset of choice: (WISDM - EEG - HAR - HHAR_SA)')
 
     # ========= Select the BACKBONE ==============
     parser.add_argument('--backbone', default='CNN', type=str, help='Backbone of choice: (CNN - RESNET18 - TCN)')

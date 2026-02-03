@@ -21,12 +21,7 @@ class FD():
             'AaD': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'beta': 5, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169},
-            'TF_MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169},
-            'TF_MAPU_Anchor_sink': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'sink_weight': 0.005, 'eps': 0.1},
-            'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.2, 'phase_scale': 0.2,},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.80482, 'phase_scale': 1.69806,},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
@@ -35,10 +30,62 @@ class FD():
                      },
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,
                      'target_cls_wt': 1, 'aad_wt':0.01, 'beta': 10, 'alpha': 1},
-            'CESFDA_fre': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,
-                     'target_cls_wt': 1, 'aad_wt':0.01, 'beta': 10, 'alpha': 1},
         }
 
+class WISDM():
+    def __init__(self):
+        super(WISDM, self).__init__()
+        self.train_params = {
+                'num_epochs': 50,
+                'batch_size': 64,
+                'weight_decay': 1e-4,
+                'step_size': 50,
+                'lr_decay': 0.5
+        }
+        self.alg_hparams = {
+            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
+                     'target_cls_wt': 0.3312},
+            'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.001, 'beta': 10, 'alpha': 1},
+
+            'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'epsilon': 1e-5},
+            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'TemSR': {
+                     'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897,
+                     'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
+                     'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
+                     'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
+                     },
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+                     'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
+        }
+
+class Boiler():
+    def __init__(self):
+        super(Boiler, self).__init__()
+        self.train_params = {
+                'num_epochs': 30,
+                'batch_size': 32,
+                'weight_decay': 1e-4,
+                'step_size': 50,
+                'lr_decay': 0.5
+        }
+        self.alg_hparams = {
+            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
+                     'target_cls_wt': 0.3312},
+            'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'beta': 10, 'alpha': 1},
+            'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
+            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'TemSR': {
+                     'pre_learning_rate': 0.003, 'learning_rate': 0.000007, 'ent_loss_wt': 4.87809,
+                     'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
+                     'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 4,
+                     'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
+                     },
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514,
+                     'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
+        }
 
 class EEG():
     def __init__(self):
@@ -57,10 +104,13 @@ class EEG():
             'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'beta': 9, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385},
-            'TF_MAPU': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385},
-            'TF_MAPU_Anchor': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
+            'TemSR': {
+                     'pre_learning_rate': 0.001, 'learning_rate': 0.00005, 'ent_loss_wt': 1,
+                     'disc_loss_wt': 50, 'src_like_entropy_wt': 1, 'Gent': True, 'src_like_epochs': 3,
+                     'trg_disc_epochs': 3,'trg_max_min_loss_wt': 2.09309,'AR_hid_dim': 64, 'num_splits': 8,
+                     'num_masked': 1, 'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': True
+                     },
             'CESFDA': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514,
                      'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
         }
@@ -83,46 +133,15 @@ class HAR():
 
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU_Anchor_sink': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'sink_weight': 0.005},
-            'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-        }
-
-class WISDM():
-    def __init__(self):
-        super(WISDM, self).__init__()
-        self.train_params = {
-                'num_epochs': 50,
-                'batch_size': 64,
-                'weight_decay': 1e-4,
-                'step_size': 50,
-                'lr_decay': 0.5
-        }
-        self.alg_hparams = {
-            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
-                     'target_cls_wt': 0.3312},
-            'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.001, 'beta': 10, 'alpha': 1},
-
-            'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'epsilon': 1e-5},
-            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU_Anchor_sink': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'sink_weight': 0.005},
-            'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.1, 'phase_scale': 0.1,},
-            'TemSR': {
-                     'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897,
-                     'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
-                     'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
-                     'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
-                     },
-            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
-                     'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
-            'CESFDA_fre': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,
-                     'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
+            'TemSR':  {
+                      'pre_learning_rate': 0.001, 'learning_rate': 0.0005, 'ent_loss_wt': 0.1,
+                      'disc_loss_wt': 50, 'src_like_entropy_wt': 1.5, 'Gent': True, 'src_like_epochs': 3,
+                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 3.64, 'AR_hid_dim': 64, 'num_splits': 8,
+                      'num_masked': 1, 'anchor_percent':0.3, 'CL_temp': 0.01, 'detach': True
+                      },
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+                     'target_cls_wt': 0.01,  'beta': 10, 'alpha': 1, 'aad_wt':0.025},
         }
 
 class HHAR_SA():
@@ -142,41 +161,13 @@ class HHAR_SA():
 
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU_Anchor_sink': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'sink_weight': 0.005},
-            'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-        }
-
-class Boiler():
-    def __init__(self):
-        super(Boiler, self).__init__()
-        self.train_params = {
-                'num_epochs': 30,
-                'batch_size': 32,
-                'weight_decay': 1e-4,
-                'step_size': 50,
-                'lr_decay': 0.5
-        }
-        self.alg_hparams = {
-            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
-                     'target_cls_wt': 0.3312},
-            'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'beta': 10, 'alpha': 1},
-            'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
-            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'TF_MAPU_Anchor_sink': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'sink_weight': 0.005},
-            'TF_MAPU_Anchor': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0,},
-            'TF_MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, "kernel_num": [5, 5], "kernel_mul": [2.0, 2.0], "cdd_weight": 0.3, "variance_mult": 1.0, 'target_cls_wt': 0.15,},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.1, 'phase_scale': 0.1,},
-            'TemSR': {
-                     'pre_learning_rate': 0.003, 'learning_rate': 0.000007, 'ent_loss_wt': 4.87809,
-                     'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
-                     'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 4,
-                     'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
+            'TemSR':  {
+                      'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'ent_loss_wt': 0.1,
+                      'disc_loss_wt': 50, 'src_like_entropy_wt': 1.5, 'Gent': True, 'src_like_epochs': 3,
+                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 3.64, 'AR_hid_dim': 64, 'num_splits': 8,
+                      'num_masked': 1, 'anchor_percent':0.3, 'CL_temp': 0.01, 'detach': True
                      },
-            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514,
-                     'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
+            'CESFDA': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+                     'target_cls_wt': 0.01, 'aad_wt':0.02,'beta': 9, 'alpha': 1},
+            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
         }

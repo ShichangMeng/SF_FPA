@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from einops import rearrange
 import torch.nn.functional as F
+import math
 
 def get_backbone_class(backbone_name):
     """Return the algorithm class with the given name."""
@@ -185,7 +186,8 @@ class FrequencyAdaptationLayer(nn.Module):
         
         # rfft 后的频率维度长度
         self.freq_len = seq_len // 2 + 1
-        
+        self.amp_scale = amp_scale
+        self.phase_scale = phase_scale
         # 幅值调节 MLP: Input: (freq_len), Output: (freq_len)
         # 这里设计为对每个 Channel 独立应用或者共享权重，
         # 为了简单起见，这里利用 Linear 的特性，对最后一维(频率维)进行全连接操作
@@ -232,12 +234,12 @@ class FrequencyAdaptationLayer(nn.Module):
         # 注意：amp 和 phase 的形状是 [B, C, Freq_Len]
         # nn.Linear 默认作用在最后一个维度，所以正好
 
-        delta_amp = self.amp_mlp(amp) * 0.2  # 乘以系数限制初始扰动大小
-        delta_phase = self.phase_mlp(phase) * 0.2 # 限制相位改变量 (比如最多 0.1 弧度)
+        delta_amp = self.amp_mlp(amp) * self.amp_scale  # 乘以系数限制初始扰动大小
+        delta_phase = self.phase_mlp(phase) * self.phase_scale # 限制相位改变量 (比如最多 0.1 弧度)
         
         # 3. 叠加修正
         new_amp = amp * (1 + delta_amp)
-        new_phase = phase + (1 + delta_phase)
+        new_phase = phase * (1 + delta_phase)
         
         # 4. 组合并反变换 iFFT
         # 构造复数
