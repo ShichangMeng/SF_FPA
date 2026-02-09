@@ -124,7 +124,8 @@ class WISDM(object):
         self.class_names = ['walk', 'jog', 'sit', 'stand', 'upstairs', 'downstairs']
         self.sequence_len = 128
         # Closed Set DA
-        self.scenarios = [("2", "32"), ("7", "30"), ('18','20'), ('20','30'), ('26','2')]
+        #[("2", "32"), ("7", "30"), ('18','20'), ('20','30'), ('26','2')]
+        self.scenarios = [("2", "32"), ("7", "30"), ('18','20'), ('20','30'), ('26','2'), ('9','3'), ('22','18'), ('12','9'), ('2','20')]
         self.num_classes = 6
         self.shuffle = True
         self.drop_last = False
@@ -217,7 +218,8 @@ class Boiler(object):
         super(Boiler, self).__init__()
         self.class_names = ['0','1']
         self.sequence_len = 6
-        self.scenarios = [("1", "2"),("1", "3"),("2", "3")]
+        # self.scenarios = [("1", "2"),("1", "3"),("2", "3")]
+        self.scenarios = [("1", "3"),("2", "3")]
         self.num_classes = 2
         self.sequence_len = 36
         self.shuffle = True

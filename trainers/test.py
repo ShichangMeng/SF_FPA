@@ -14,6 +14,7 @@ import collections
 import argparse
 import warnings
 import sklearn.exceptions
+import torch.nn as nn
 
 from utils import fix_randomness, starting_logs, AverageMeter
 from algorithms.algorithms import get_algorithm_class
@@ -50,58 +51,6 @@ class TargetTest(AbstractTrainer):
         backbone_fe = get_backbone_class(self.backbone)
 
         return algorithm_class(backbone_fe, self.dataset_configs, self.hparams, self.device).to(self.device)
-
-    # def scenario_test(self):
-    #
-    #     results_columns = ["scenario", "run", "acc", "f1_score", "auroc"]
-    #     last_results = pd.DataFrame(columns=results_columns)
-    #     best_results = pd.DataFrame(columns=results_columns)
-    #
-    #     # Trainer
-    #     for src_id, trg_id in self.dataset_configs.scenarios:
-    #         for run_id in range(self.num_runs):
-    #             # fixing random seed
-    #             fix_randomness(run_id)
-    #
-    #             # Logging
-    #             self.scenario_log_dir = os.path.join(self.exp_log_dir, src_id + "_to_" + trg_id + "_run_" + str(run_id))
-    #
-    #             self.loss_avg_meters = collections.defaultdict(lambda: AverageMeter())
-    #
-    #             # Load data
-    #             self.load_data(src_id, trg_id)
-    #
-    #             # Build model
-    #             self.algorithm = self.build_model()
-    #
-    #             # Load chechpoint
-    #             source_only_model, adapted_last, adapted_best = self.load_checkpoint(self.scenario_log_dir)
-    #
-    #             # Testing the model
-    #             non_adapted_metrics = self.model_test(source_only_model)
-    #             last_metrics = self.model_test(adapted_last)
-    #             best_metrics = self.model_test(adapted_best)
-    #
-    #             # Append results to tables
-    #             src_only_results = self.append_results_to_tables(last_results, f"{src_id}_to_{trg_id}", run_id,non_adapted_metrics)
-    #             last_results = self.append_results_to_tables(last_results, f"{src_id}_to_{trg_id}", run_id,last_metrics)
-    #             best_results = self.append_results_to_tables(best_results, f"{src_id}_to_{trg_id}", run_id, best_metrics)
-    #
-    #     summary_src_only = {metric: np.mean(src_only_results[metric]) for metric in results_columns[2:]}
-    #     summary_last = {metric: np.mean(last_results[metric]) for metric in results_columns[2:]}
-    #     summary_best = {metric: np.mean(best_results[metric]) for metric in results_columns[2:]}
-    #
-    #     # Calculate and append mean and std to tables
-    #     last_results = self.add_mean_std_table(last_results, results_columns)
-    #     best_results = self.add_mean_std_table(best_results, results_columns)
-    #
-    #     # Save tables to file if needed
-    #     self.save_tables_to_file(last_results, 'last_results')
-    #     self.save_tables_to_file(best_results, 'best_results')
-    #
-    #     for summary_name, summary in [('src_only', summary_src_only), ('Last', summary_last), ('Best', summary_best)]:
-    #         for key, val in summary.items():
-    #             print(f'{summary_name}: {key}\t: {val:2.4f}')
 
     def scenario_test(self):
         # Define columns for results tables
@@ -141,16 +90,21 @@ class TargetTest(AbstractTrainer):
                 print(f'{summary_name}: {key}\t: {val:2.4f}')
 
         # Add mean and std tables to results tables and save to file
+        non_adapted_results = self.add_mean_std_table(non_adapted_results, results_columns)
         last_results = self.add_mean_std_table(last_results, results_columns)
         best_results = self.add_mean_std_table(best_results, results_columns)
         self.save_tables_to_file(last_results, 'last_results')
         self.save_tables_to_file(best_results, 'best_results')
+        self.save_tables_to_file(non_adapted_results, 'non_adapted_results')
 
     def model_test(self, chkpoint):
         # Load the model dictionary
         self.algorithm.network.load_state_dict(chkpoint)
-
         feature_extractor = self.algorithm.feature_extractor.to(self.device)
+        if hasattr(self.algorithm, 'freq_adapter'):
+            freq_adapter = self.algorithm.freq_adapter.to(self.device)
+            feature_extractor = nn.Sequential(freq_adapter, feature_extractor)
+        
         classifier = self.algorithm.classifier.to(self.device)
 
         feature_extractor.eval()
@@ -164,10 +118,7 @@ class TargetTest(AbstractTrainer):
                 labels = labels.view((-1)).long().to(self.device)
 
                 # forward pass
-                if self.da_method == 'TF_MAPU':
-                    features, _, _ = feature_extractor(data)
-                else:
-                    features, _ = feature_extractor(data)
+                features, _ = feature_extractor(data)
                 predictions = classifier(features)
 
                 # compute loss
@@ -188,11 +139,11 @@ class TargetTest(AbstractTrainer):
 
 if __name__ == "__main__":
     # ========  Experiments Name ================
-    parser.add_argument('--save_dir', default='MAPU_SFDA_TS/exp0130', type=str, help='Directory containing all experiments')
-    parser.add_argument('-run_description', default=None, type=str, help='Description of run, if none, DA method name will be used')
+    parser.add_argument('--save_dir', default='MAPU_SFDA_TS/exp', type=str, help='Directory containing all experiments')
+    parser.add_argument('-run_description', default='proposed', type=str, help='Description of run, if none, DA method name will be used')
 
     # ========= Select the DA methods ============
-    parser.add_argument('--da_method', default='MAPU', type=str,
+    parser.add_argument('--da_method', default='MAPU_Anchor_freq_gmm', type=str,
                         help='')
 
     # ========= Select the DATASET ==============
@@ -203,7 +154,7 @@ if __name__ == "__main__":
     parser.add_argument('--backbone', default='CNN', type=str, help='Backbone of choice: (CNN - RESNET18 - TCN)')
 
     # ========= Experiment settings ===============
-    parser.add_argument('--num_runs', default=1, type=int, help='Number of consecutive run with different seeds')
+    parser.add_argument('--num_runs', default=3, type=int, help='Number of consecutive run with different seeds')
     parser.add_argument('--device', default="cuda", type=str, help='cpu or cuda')
 
     args = parser.parse_args()

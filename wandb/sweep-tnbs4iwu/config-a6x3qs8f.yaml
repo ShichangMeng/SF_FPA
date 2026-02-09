@@ -1,0 +1,4 @@
+wandb_version: 1
+
+phase_scale:
+  value: 2.5
