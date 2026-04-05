@@ -14,6 +14,8 @@ from algorithms.sinkhorn import ClassWiseSinkhornLoss
 from sklearn.mixture import GaussianMixture
 from torchmetrics import Accuracy
 import copy
+from numpy import linalg as LA
+import sys
 
 def get_algorithm_class(algorithm_name):
     """Return the algorithm class with the given name."""
@@ -899,6 +901,394 @@ class TemSR(Algorithm):
             # last_model = deepcopy(self.network.state_dict(=))
         return last_model, best_model
 
+class TPDS(Algorithm):
+
+    def __init__(self, backbone, configs, hparams, device):
+        super(TPDS, self).__init__(configs)
+
+        self.feature_extractor = backbone(configs)
+        self.classifier = classifier(configs)
+        self.temporal_verifier = Temporal_Imputer(configs)
+
+        self.network = nn.Sequential(self.feature_extractor, self.classifier)
+
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=hparams["learning_rate"],
+            weight_decay=hparams["weight_decay"]
+        )
+
+        self.pre_optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=hparams["pre_learning_rate"],
+            weight_decay=hparams["weight_decay"]
+        )
+        self.tov_optimizer = torch.optim.Adam(
+            self.temporal_verifier.parameters(),
+            lr=hparams["learning_rate"],
+            weight_decay=hparams["weight_decay"]
+        )
+        # device
+        self.device = device
+        self.hparams = hparams
+
+        self.lr_scheduler = StepLR(self.optimizer, step_size=hparams['step_size'], gamma=hparams['lr_decay'])
+
+        # losses
+        self.mse_loss = nn.MSELoss()
+        self.cross_entropy = CrossEntropyLabelSmooth(self.configs.num_classes, device, epsilon=0.1, )
+    def op_copy(self, optimizer):
+        for param_group in optimizer.param_groups:
+            param_group['lr0'] = param_group['lr']
+        return optimizer
+    
+    
+    def lr_scheduler(self, optimizer, iter_num, max_iter, gamma=10, power=0.75):
+        decay = (1 + gamma * iter_num / max_iter) ** (-power)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = param_group['lr0'] * decay
+            param_group['weight_decay'] = 1e-3
+            param_group['momentum'] = 0.9
+            param_group['nesterov'] = True
+        return optimizer
+    
+   
+
+    def pretrain(self, src_dataloader, avg_meter, logger):
+
+        for epoch in range(1, self.hparams["num_epochs"] + 1):
+            for step, (src_x, src_y, _) in enumerate(src_dataloader):
+                # input src data
+                src_x, src_y = src_x.float().to(self.device), src_y.long().to(self.device)
+
+                self.pre_optimizer.zero_grad()
+                # self.tov_optimizer.zero_grad()
+
+                # forward pass correct sequences
+                src_feat, seq_src_feat = self.feature_extractor(src_x)
+
+                # masking the input_sequences
+
+
+                # classifier predictions
+                src_pred = self.classifier(src_feat)
+
+                # normal cross entropy
+                src_cls_loss = self.cross_entropy(src_pred, src_y)
+
+                total_loss = src_cls_loss
+                total_loss.backward()
+                self.pre_optimizer.step()
+                # self.tov_optimizer.step()
+
+                losses = {'cls_loss': src_cls_loss.detach().item(),}
+                # acculate loss
+                for key, val in losses.items():
+                    avg_meter[key].update(val, 32)
+
+            # logging
+            logger.debug(f'[Epoch : {epoch}/{self.hparams["num_epochs"]}]')
+            for key, val in avg_meter.items():
+                logger.debug(f'{key}\t: {val.avg:2.4f}')
+            logger.debug(f'-------------------------------------')
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
+    
+    def update(self, trg_dataloader, avg_meter, logger):
+
+        # defining best and last model
+        best_src_risk = float('inf')
+        best_model = self.network.state_dict()
+        last_model = self.network.state_dict()
+
+#         # freeze both classifier and ood detector
+#         for k, v in self.classifier.named_parameters():
+#             v.requires_grad = False
+#               # obtain pseudo labels
+        param_group = []
+        for k, v in self.feature_extractor.named_parameters():
+            if 0.1 > 0:
+                param_group += [{'params': v, 'lr': 1e-3 * 0.1}]
+            else:
+                v.requires_grad = False
+
+        for k, v in self.classifier.named_parameters():
+            if 0.1 > 0:
+                param_group += [{'params': v, 'lr': 1e-3 * 0.1}]
+            else:
+                v.requires_grad = False
+
+
+      
+        
+        for epoch in range(1, self.hparams["num_epochs"] + 1):
+            self.feature_extractor.eval()
+            _, feas_all, label_confi, _, _ = self.obtain_label_ts(trg_dataloader, self.feature_extractor, self.classifier)
+            self.feature_extractor.train()
+
+            for step, (trg_x, _, trg_idx) in enumerate(trg_dataloader):
+                trg_x = trg_x.float().to(self.device)
+
+
+                # -----------------------------------data--------------------------------
+    #                 inputs_test = inputs_test.cuda()
+                # inputs_test_aug = inputs_test_aug.cuda()
+                features_test_F, _ = self.feature_extractor(trg_x)
+
+                outputs_test = self.classifier(features_test_F)
+                softmax_out = nn.Softmax(dim=1)(outputs_test)
+
+                features_test_N, _, _ = self.obtain_nearest_trace(features_test_F, feas_all, label_confi)
+                features_test_N = torch.from_numpy(features_test_N).cuda()
+
+                outputs_test_N = self.classifier(features_test_N)
+                softmax_out_hyper = nn.Softmax(dim=1)(outputs_test_N)
+
+                # -------------------------------objective------------------------------
+                classifier_loss = torch.tensor(0.0).cuda()
+                iic_loss = self.IID_loss(softmax_out, softmax_out_hyper)
+                classifier_loss = classifier_loss + 1 * iic_loss
+
+
+
+
+                msoftmax = softmax_out.mean(dim=0)
+                gentropy_loss = torch.sum(-msoftmax * torch.log(msoftmax + 1e-5))
+                gentropy_loss = gentropy_loss * 0.1
+                classifier_loss = classifier_loss - gentropy_loss
+
+                # elif cfg.dset == "office-home":
+                #     msoftmax = softmax_out.mean(dim=0)
+                #     gentropy_loss = torch.sum(-msoftmax * torch.log(msoftmax + cfg.epsilon))
+                #     gentropy_loss = gentropy_loss * 0.5
+                #     classifier_loss = classifier_loss - gentropy_loss
+
+                # --------------------------------------------------------------------    
+                
+                self.optimizer.zero_grad()
+                classifier_loss.backward()
+                self.optimizer.step()
+        return last_model, best_model
+
+    def obtain_label_ts(self,loader, netF, netC):
+        start_test = True
+        with torch.no_grad():
+            iter_test = iter(loader)
+            for _ in range(len(loader)):
+                data = next(iter_test)
+                inputs = data[0]
+                labels = data[1]
+                inputs = inputs.cuda()
+                feas_F, _ = netF(inputs)
+#                 feas = netB(feas_F)
+                outputs = netC(feas_F)
+                if start_test:
+                    all_fea_F = feas_F.float().cpu()
+#                     all_fea = feas.float().cpu()
+                    all_output = outputs.float().cpu()
+                    all_label = labels.float()
+                    start_test = False
+                else:
+                    all_fea_F = torch.cat((all_fea_F, feas_F.float().cpu()), 0)
+#                     all_fea = torch.cat((all_fea, feas.float().cpu()), 0)
+                    all_output = torch.cat((all_output, outputs.float().cpu()), 0)
+                    all_label = torch.cat((all_label, labels.float()), 0)
+
+        # all_logis = all_output
+        all_output = nn.Softmax(dim=1)(all_output)
+        ent = torch.sum(-all_output * torch.log(all_output + 1e-5), dim=1)
+        unknown_weight = 1 - ent / np.log(6)
+        _, predict = torch.max(all_output, 1)
+
+        len_unconfi = int(ent.shape[0]*0.5)
+        idx_unconfi = ent.topk(len_unconfi, largest=True)[-1]
+        idx_unconfi_list_ent = idx_unconfi.cpu().numpy().tolist()
+
+        accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
+#         if 'cosine' == 'cosine':
+#             all_fea = torch.cat((all_fea, torch.ones(all_fea.size(0), 1)), 1)
+#             all_fea = (all_fea.t() / torch.norm(all_fea, p=2, dim=1)).t()
+
+        all_fea_F = all_fea_F.float().cpu().numpy()
+        K = all_output.size(1)
+        aff = all_output.float().cpu().numpy()
+        initc = aff.transpose().dot(all_fea_F)
+        initc = initc / (1e-8 + aff.sum(axis=0)[:,None])
+        cls_count = np.eye(K)[predict].sum(axis=0)
+        labelset = np.where(cls_count>1e-5)
+        labelset = labelset[0]
+        # print(labelset)
+
+        dd = cdist(all_fea_F, initc[labelset], 'cosine')
+        pred_label = dd.argmin(axis=1)
+        pred_label = labelset[pred_label]
+
+        # --------------------use dd to get confi_idx and unconfi_idx-------------
+        dd_min = dd.min(axis = 1)
+        dd_min_tsr = torch.from_numpy(dd_min).detach()
+        dd_t_confi = dd_min_tsr.topk(int((dd.shape[0]*0.6)), largest = False)[-1]
+        dd_confi_list = dd_t_confi.cpu().numpy().tolist()
+        dd_confi_list.sort()
+        idx_confi = dd_confi_list
+
+        idx_all_arr = np.zeros(shape = dd.shape[0], dtype = np.int64)
+        idx_all_arr[idx_confi] = 1
+        idx_unconfi_arr = np.where(idx_all_arr == 0)
+        idx_unconfi_list_dd = list(idx_unconfi_arr[0])
+
+        idx_unconfi_list = list(set(idx_unconfi_list_dd).intersection(set(idx_unconfi_list_ent)))
+        # ------------------------------------------------------------------------
+        # idx_unconfi_list = idx_unconfi_list_dd # idx_unconfi_list_dd
+
+        label_confi = np.ones(ent.shape[0], dtype="int64")
+        label_confi[idx_unconfi_list] = 0
+
+        return pred_label.astype('int'), all_fea_F, label_confi, all_label, all_output
+
+
+
+    def obtain_nearest_trace(self, data_q, data_all, lab_confi):
+        data_q_ = data_q.detach()
+#         data_all_ = data_all
+        data_q_ = data_q_.cpu().numpy()
+        data_all_ = data_all
+        num_sam = data_q.shape[0]
+        LN_MEM = 70
+
+        flag_is_done = 0         # indicate whether the trace process has done over the target dataset 
+        ctr_oper = 0             # counter the operation time
+        idx_left = np.arange(0, num_sam, 1)
+        mtx_mem_rlt = -3*np.ones((num_sam, LN_MEM), dtype='int64')
+        mtx_mem_ignore = np.zeros((num_sam, LN_MEM), dtype='int64')
+        is_mem = 0
+        mtx_log = np.zeros((num_sam, LN_MEM), dtype='int64')
+        indices_row = np.arange(0, num_sam, 1)
+        flag_sw_bad = 0 
+        nearest_idx_last = np.array([-7])
+
+        while flag_is_done == 0:
+
+            nearest_idx_tmp, idx_last_tmp = self.get_nearest_sam_idx(data_q_, data_all_, is_mem, ctr_oper, mtx_mem_ignore, nearest_idx_last)
+            is_mem = 1
+            nearest_idx_last = nearest_idx_tmp
+
+            if ctr_oper == (LN_MEM-1):    
+                flag_sw_bad = 1
+            else:
+                flag_sw_bad = 0 
+
+            mtx_mem_rlt[:, ctr_oper] = nearest_idx_tmp
+            mtx_mem_ignore[:, ctr_oper] = idx_last_tmp
+
+            lab_confi_tmp = lab_confi[nearest_idx_tmp]
+            idx_done_tmp = np.where(lab_confi_tmp == 1)[0]
+            idx_left[idx_done_tmp] = -1
+
+            if flag_sw_bad == 1:
+                idx_bad = np.where(idx_left >= 0)[0]
+                mtx_log[idx_bad, 0] = 1
+            else:
+                mtx_log[:, ctr_oper] = lab_confi_tmp
+
+            flag_len = len(np.where(idx_left >= 0)[0])
+            # print("{}--the number of left:{}".format(str(ctr_oper), flag_len))
+
+            if flag_len == 0 or flag_sw_bad == 1:
+                # idx_nn_tmp = [list(mtx_log[k, :]).index(1) for k in range(num_sam)]
+                idx_nn_step = []
+                for k in range(num_sam):
+                    try:
+                        idx_ts = list(mtx_log[k, :]).index(1)
+                        idx_nn_step.append(idx_ts)
+                    except:
+#                         print("ts:", k, mtx_log[k, :])
+                        # mtx_log[k, 0] = 1
+                        idx_nn_step.append(0)
+
+                idx_nn_re = mtx_mem_rlt[indices_row, idx_nn_step]
+                data_re = data_all[idx_nn_re, :]
+                flag_is_done = 1
+            else:
+                data_q_ = data_all_[nearest_idx_tmp, :]
+            ctr_oper += 1
+
+        return data_re, idx_nn_re, idx_nn_step # array
+
+
+
+    def get_nearest_sam_idx(self, Q, X, is_mem_f, step_num, mtx_ignore, nearest_idx_last_f): # Q、X arranged in format of row-vector
+        Xt = np.transpose(X)
+        Simo = np.dot(Q, Xt)               
+        nq = np.expand_dims(LA.norm(Q, axis=1), axis=1)
+        nx = np.expand_dims(LA.norm(X, axis=1), axis=0)
+        Nor = np.dot(nq, nx)
+        Sim = 1 - (Simo / Nor)
+
+        # Sim = cdist(Q, X, "cosine") # too slow
+        # print('eeeeee \n', Sim)
+
+        indices_min = np.argmin(Sim, axis=1)
+        indices_row = np.arange(0, Q.shape[0], 1)
+
+        idx_change = np.where((indices_min - nearest_idx_last_f)!=0)[0] 
+        if is_mem_f == 1:
+            if idx_change.shape[0] != 0:
+                indices_min[idx_change] = nearest_idx_last_f[idx_change]  
+        Sim[indices_row, indices_min] = 1000
+
+        # mytst = np.eye(795)[indices_min]
+        # mytst_log = np.sum(mytst, axis=0)
+        # haha = np.where(mytst_log > 1)[0]
+        # if haha.size != 0:
+        #     print(haha)
+
+        # Ignore the history elements. 
+        if is_mem_f == 1:
+            for k in range(step_num):
+                indices_ingore = mtx_ignore[:, k]
+                Sim[indices_row, indices_ingore] = 1000
+
+        indices_min_cur = np.argmin(Sim, axis=1)
+        indices_self = indices_min
+        return indices_min_cur, indices_self
+    
+    def IID_loss(self, x_out, x_tf_out, lamb=1.0, EPS=sys.float_info.epsilon):
+        # has had softmax applied
+        _, k = x_out.size()
+        # p_i_j = compute_joint(x_out, x_tf_out)
+        bn_, k_ = x_out.size()
+        assert (x_tf_out.size(0) == bn_ and x_tf_out.size(1) == k_)
+        su_temp1 = x_out.unsqueeze(2)
+        su_temp2 = x_tf_out.unsqueeze(1)
+        p_i_j = x_out.unsqueeze(2) * x_tf_out.unsqueeze(1)  # bn, k, k #这两个相乘有什么用？
+        p_i_j = p_i_j.sum(dim=0)  # k, k
+        p_i_j = (p_i_j + p_i_j.t()) / 2.  # symmetrise 为什么要对称
+        p_i_j = p_i_j / p_i_j.sum()  # normalise
+        assert (p_i_j.size() == (k, k))
+
+        p_i = p_i_j.sum(dim=1).view(k, 1).expand(k, k)
+        p_j = p_i_j.sum(dim=0).view(1, k).expand(k,
+                                               k)  # but should be same, symmetric
+
+        # avoid NaN losses. Effect will get cancelled out by p_i_j tiny anyway
+        p_i_j[(p_i_j < EPS).data] = EPS
+        # p_j[(p_j < EPS).data] = EPS
+        # p_i[(p_i < EPS).data] = EPS
+
+        loss = - p_i_j * (torch.log(p_i_j) \
+                        - lamb * torch.log(p_j) \
+                        - lamb * torch.log(p_i))
+
+        loss = loss.sum()
+
+        # loss_no_lamb = - p_i_j * (torch.log(p_i_j) \
+        #                           - torch.log(p_j) \
+        #                           - torch.log(p_i))
+
+        # loss_no_lamb = loss_no_lamb.sum()
+
+        return loss
+
 class CESFDA(Algorithm):
 
     def __init__(self, backbone, configs, hparams, device, is_wegited=False):
@@ -1069,10 +1459,10 @@ class CESFDA(Algorithm):
             logger.debug(f'-------------------------------------')
         return last_model, best_model
 
-class MAPU_Anchor_freq_gmm(Algorithm):
+class SAFA(Algorithm):
 
     def __init__(self, backbone, configs, hparams, device):
-        super(MAPU_Anchor_freq_gmm, self).__init__(configs)
+        super(SAFA, self).__init__(configs)
 
         self.feature_extractor = backbone(configs)
         self.classifier = classifier(configs)

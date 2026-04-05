@@ -1,7 +1,7 @@
 
 sweep_alg_hparams = {
 
-    'MAPU_Anchor_freq_gmm':
+    'SAFA':
         {   
             # 'amp_scale': {'distribution': 'uniform', 'min': 0, 'max': 1},
             # 'phase_scale': {'distribution': 'uniform', 'min': 0, 'max': 3},

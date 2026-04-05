@@ -21,13 +21,15 @@ class FD():
             'AaD': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'beta': 5, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.80482, 'phase_scale': 1.69806,},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.80482, 'phase_scale': 1.69806,},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
+            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.00005, 'ent_loss_wt': 0.8467, 'im': 0.2983,
+                     'target_cls_wt': 1, 'beta': 10, 'alpha': 1},
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,
                      'target_cls_wt': 1, 'aad_wt':0.01, 'beta': 10, 'alpha': 1},
         }
@@ -49,13 +51,15 @@ class WISDM():
 
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
+            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+                     'target_cls_wt': 0.05,  'beta': 10, 'alpha': 1},
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
                      'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
         }
@@ -76,13 +80,15 @@ class Boiler():
             'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'beta': 10, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
             'TemSR': {
                      'pre_learning_rate': 0.003, 'learning_rate': 0.000007, 'ent_loss_wt': 4.87809,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 4,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
+            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+                     'target_cls_wt': 0.05,  'beta': 10, 'alpha': 1},
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514,
                      'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
         }
@@ -104,7 +110,7 @@ class EEG():
             'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'beta': 9, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
+            'SAFA': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00005, 'ent_loss_wt': 1,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 1, 'Gent': True, 'src_like_epochs': 3,
@@ -139,7 +145,7 @@ class HAR():
                       'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 3.64, 'AR_hid_dim': 64, 'num_splits': 8,
                       'num_masked': 1, 'anchor_percent':0.3, 'CL_temp': 0.01, 'detach': True
                       },
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
                      'target_cls_wt': 0.01,  'beta': 10, 'alpha': 1, 'aad_wt':0.025},
         }
@@ -169,5 +175,5 @@ class HHAR_SA():
                      },
             'CESFDA': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
                      'target_cls_wt': 0.01, 'aad_wt':0.02,'beta': 9, 'alpha': 1},
-            'MAPU_Anchor_freq_gmm': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
         }
