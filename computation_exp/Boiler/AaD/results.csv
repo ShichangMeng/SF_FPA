@@ -1,0 +1,4 @@
+,scenario,run,acc,f1_score,auroc
+0,1_to_2,0,0.9808,0.4952,0.7153
+1,mean,-,0.9808,0.4952,0.7153
+2,std,-,nan,nan,nan

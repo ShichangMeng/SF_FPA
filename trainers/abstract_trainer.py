@@ -10,7 +10,7 @@ import numpy as np
 import warnings
 import sklearn.exceptions
 import collections
-
+import time
 from dataloader.dataloader import data_generator
 from configs.data_model_configs import get_dataset_class
 from configs.hparams import get_hparams_class
@@ -80,15 +80,18 @@ class AbstractTrainer(object):
         # pretraining step
         self.logger.debug(f'Pretraining stage..........')
         self.logger.debug("=" * 45)
-
+        pretrain_start_time = time.time()
         self.non_adapted_model = self.algorithm.pretrain(self.src_train_dl, self.pre_loss_avg_meters, self.logger)
+        pretrain_duration = time.time() - pretrain_start_time
+        self.logger.debug(f'Pretraining stage finished in {pretrain_duration:.2f} seconds.')
         # adapting step
         self.logger.debug("=" * 45)
         self.logger.debug(f'Adaptation stage..........')
         self.logger.debug("=" * 45)
-
+        adapt_start_time = time.time()
         self.last_model, self.best_model = self.algorithm.update(self.trg_train_dl, self.loss_avg_meters, self.logger)
-
+        adapt_duration = time.time() - adapt_start_time
+        self.logger.debug(f'Adaptation stage finished in {adapt_duration:.2f} seconds.')
         return  self.non_adapted_model,  self.last_model, self.best_model
     
     def evaluate(self, test_loader):
@@ -266,6 +269,6 @@ class AbstractTrainer(object):
         format_func = lambda x: f"{x:.4f}" if isinstance(x, float) else x
 
         # Apply the formatting function to each element in the tables
-        table = table.applymap(format_func)
+        table = table.map(format_func)
 
         return table 
