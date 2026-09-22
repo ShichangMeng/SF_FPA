@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch.nn as nn
 from einops import rearrange
+from typing import Optional
 
 class ConditionalEntropyLoss(torch.nn.Module):
     def __init__(self):
@@ -185,6 +186,15 @@ def EntropyLoss(input_):
     entropy = - (torch.sum(mask_out * torch.log(mask_out)))
     return entropy / float(input_.size(0))
 
+def Entropy(input: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the entropy
+    :param input: the softmax output
+    :return: entropy
+    """
+    entropy = -input * torch.log(input + 1e-5)
+    entropy = torch.sum(entropy, dim=1)
+    return entropy
 
 def evidential_uncertainty(predictions, target, num_classes, device):
     predictions = predictions.to(device)
@@ -236,6 +246,16 @@ def evident_dl(predictions):
     evident_var = torch.mean(var)
 
     return p, evident_var, evident_entropy
+
+def contrastive_loss(logits_ins, pseudo_labels, mem_labels):
+    # labels: positive key indicators
+    labels_ins = torch.zeros(logits_ins.shape[0], dtype=torch.long).cuda()
+    mask = torch.ones_like(logits_ins, dtype=torch.bool)
+    mask[:, 1:] = torch.all(pseudo_labels.unsqueeze(1) != mem_labels.unsqueeze(0), dim=2) 
+    logits_ins = torch.where(mask, logits_ins, torch.tensor([float("-inf")]).cuda())
+    loss = F.cross_entropy(logits_ins, labels_ins)
+
+    return loss
 
 def EntropyLoss_single(input_):
     input_ = nn.Softmax(dim=1)(input_)
@@ -418,4 +438,34 @@ class SupConLoss(torch.nn.Module):
         # loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
         loss = - 1 * mean_log_prob_pos
         loss = loss.mean()
+        return loss
+
+class TEntropyLoss(nn.Module):
+    """
+    The Tsallis Entropy for Uncertainty Reduction
+
+    Parameters:
+        - **t** Optional(float): the temperature factor used in TEntropyLoss
+        - **order** Optional(float): the order of loss function
+    """
+
+    def __init__(self,
+                 t: Optional[float] = 2.0,
+                 order: Optional[float] = 2.0):
+        super(TEntropyLoss, self).__init__()
+        self.t = t
+        self.order = order
+
+    def forward(self,
+                output: torch.Tensor) -> torch.Tensor:
+        n_sample, n_class = output.shape
+        softmax_out = nn.Softmax(dim=1)(output / self.t)
+        entropy_weight = Entropy(softmax_out).detach()
+        entropy_weight = 1 + torch.exp(-entropy_weight)
+        entropy_weight = (n_sample * entropy_weight / torch.sum(entropy_weight)).unsqueeze(dim=1)
+        entropy_weight = entropy_weight.repeat(1, n_class)
+        tentropy = torch.pow(softmax_out, self.order) * entropy_weight
+        # weight_softmax_out=softmax_out*entropy_weight
+        tentropy = tentropy.sum(dim=0) / softmax_out.sum(dim=0)
+        loss = -torch.sum(tentropy) / (n_class * (self.order - 1.0))
         return loss

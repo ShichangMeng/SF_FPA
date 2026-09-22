@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from models.models import classifier, Temporal_Imputer, masking, tf_encoder, tf_decoder, FT_classifier, FrequencyAdaptationLayer, Signal_Recover, masking2, segment_mask_v1, segment_mask_v3
-from models.loss import EntropyLoss, CrossEntropyLabelSmooth, evidential_uncertainty, evident_dl, Temporal_EntropyLoss_v1, Bank_info_max_anchor_min, CORAL, SupConLoss
+from models.models import classifier, Temporal_Imputer, masking, get_distances, soft_k_nearest_neighbors, refine_predictions, eval_and_label_dataset, update_labels, tf_encoder, FrequencyAdaptationLayer, FrequencyAdaptationLayer_linear, FrequencyAdaptationLayer_transformer, FrequencyAdaptationLayer_Independent, Signal_Recover, masking2, segment_mask_v1, segment_mask_v3
+from models.loss import EntropyLoss, CrossEntropyLabelSmooth, evidential_uncertainty, evident_dl, Temporal_EntropyLoss_v1, Bank_info_max_anchor_min, CORAL, SupConLoss, contrastive_loss, TEntropyLoss
 from scipy.spatial.distance import cdist
 from torch.optim.lr_scheduler import StepLR
 from copy import deepcopy
@@ -17,6 +17,8 @@ import copy
 from numpy import linalg as LA
 import sys
 
+from algorithms.moco import *
+import math
 def get_algorithm_class(algorithm_name):
     """Return the algorithm class with the given name."""
     if algorithm_name not in globals():
@@ -95,7 +97,9 @@ class SHOT(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
-
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
+    
     def update(self, trg_dataloader, avg_meter, logger):
         # defining best and last model
         best_src_risk = float('inf')
@@ -156,7 +160,7 @@ class SHOT(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
-
+        
         return last_model, best_model
 
     def obtain_pseudo_labels(self, trg_loader):
@@ -262,7 +266,9 @@ class AaD(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
-
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
+    
     def update(self, trg_dataloader, avg_meter, logger):
         for epoch in range(1, self.hparams["num_epochs"] + 1):
             # inilize alpha value
@@ -414,7 +420,8 @@ class NRC(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
-
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
     def update(self, trg_dataloader, avg_meter, logger):
         # defining best and last model
         best_src_risk = float('inf')
@@ -422,12 +429,20 @@ class NRC(Algorithm):
         last_model = self.network.state_dict()
 
         for epoch in range(1, self.hparams["num_epochs"] + 1):
-
-            for step, (trg_x, _, trg_idx) in enumerate(trg_dataloader):
+            correct_pseudo_labels = 0
+            total_target_samples = 0
+            for step, (trg_x, trg_y, trg_idx) in enumerate(trg_dataloader):
                 trg_x = trg_x.float().to(self.device)
+                trg_y = trg_y.long().to(self.device)
                 # Extract features
                 features, _ = self.feature_extractor(trg_x)
                 predictions = self.classifier(features)
+                with torch.no_grad():
+                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    pseudo_label = torch.argmax(predictions, dim=1)
+                    # 统计预测正确的数量
+                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
+                    total_target_samples += trg_y.size(0)
                 num_samples = len(trg_dataloader.dataset)
                 fea_bank = torch.randn(num_samples, self.configs.final_out_channels * self.configs.features_len)
                 score_bank = torch.randn(num_samples, self.configs.num_classes).cuda()
@@ -507,6 +522,11 @@ class NRC(Algorithm):
 
                 # meter updates
                 avg_meter['Total_loss'].update(loss.item(), 32)
+            
+            if epoch == 1:
+                pseudo_label_acc = correct_pseudo_labels / total_target_samples
+                logger.debug(f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: {pseudo_label_acc * 100:.2f}% <<<')
+                # 如果你也想记录在字典里可以加：avg_meter['Pseudo_Acc_Epoch1'].update(pseudo_label_acc, 1)
 
             # saving the best model based on src risk
             if (epoch + 1) % 10 == 0 and avg_meter['Src_cls_loss'].avg < best_src_risk:
@@ -1352,7 +1372,9 @@ class CESFDA(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
-
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
+    
     def update(self, trg_dataloader, avg_meter, logger):
         best_src_risk = float('inf')
         best_model = self.network.state_dict()
@@ -1366,8 +1388,11 @@ class CESFDA(Algorithm):
         score_bank = torch.randn(num_samples, self.configs.num_classes).cuda()                              
         temp = True   
         for epoch in range(1, self.hparams["num_epochs"] + 1):
-            for step, (trg_x, y, trg_idx) in enumerate(trg_dataloader):
+            correct_pseudo_labels = 0
+            total_target_samples = 0
+            for step, (trg_x, trg_y, trg_idx) in enumerate(trg_dataloader):
                 trg_x = trg_x.float().to(self.device)
+                trg_y = trg_y.long().to(self.device)
                 if temp:
                     self.feature_extractor.eval()
                     self.classifier_aad.eval()
@@ -1391,6 +1416,12 @@ class CESFDA(Algorithm):
                 self.optimizer_aad.zero_grad()
                 trg_feat, _ = self.feature_extractor(trg_x)
                 trg_pred = self.classifier(trg_feat)#shot logits
+                with torch.no_grad():
+                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    pseudo_label = torch.argmax(trg_pred, dim=1)
+                    # 统计预测正确的数量
+                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
+                    total_target_samples += trg_y.size(0)
                 trg_pred_aad = self.classifier_aad(trg_feat)#AaD logits
                 softmax_out = nn.Softmax(dim=1)(trg_pred)
                 softmax_out_aad = nn.Softmax(dim=1)(trg_pred_aad)
@@ -1448,6 +1479,9 @@ class CESFDA(Algorithm):
 
                 for key, val in losses.items():
                     avg_meter[key].update(val, 32)
+            if epoch == 1:
+                pseudo_label_acc = correct_pseudo_labels / total_target_samples
+                logger.debug(f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: {pseudo_label_acc * 100:.2f}% <<<')
 
             if (epoch + 1) % 10 == 0 and avg_meter['Src_cls_loss'].avg < best_src_risk:
                 best_src_risk = avg_meter['Src_cls_loss'].avg
@@ -1474,7 +1508,6 @@ class SAFA(Algorithm):
             channels=configs.input_channels,
             amp_scale=amp_scale,
             phase_scale=phase_scale,
-            hidden_dim=64
         ).to(device)
         self.network = nn.Sequential(self.freq_adapter, self.feature_extractor, self.classifier)
         # self.network = nn.Sequential(self.feature_extractor, self.classifier)
@@ -1567,9 +1600,12 @@ class SAFA(Algorithm):
 
         # obtain pseudo labels
         for epoch in range(1, self.hparams["num_epochs"] + 1):
-            for step, (trg_x, _, trg_idx) in enumerate(trg_dataloader):
+            correct_pseudo_labels = 0
+            total_target_samples = 0
+            for step, (trg_x, trg_y, trg_idx) in enumerate(trg_dataloader):
 
                 trg_x = trg_x.float().to(self.device)
+                trg_y = trg_y.long().to(self.device)
                 self.optimizer.zero_grad()
                 self.tov_optimizer.zero_grad()
 
@@ -1585,7 +1621,12 @@ class SAFA(Algorithm):
 
                 # prediction scores
                 trg_pred = self.classifier(trg_feat)
-
+                with torch.no_grad():
+                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    pseudo_label = torch.argmax(trg_pred, dim=1)
+                    # 统计预测正确的数量
+                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
+                    total_target_samples += trg_y.size(0)
                 # select evidential vs softmax probabilities
                 trg_prob = nn.Softmax(dim=1)(trg_pred)
 
@@ -1610,7 +1651,9 @@ class SAFA(Algorithm):
                     avg_meter[key].update(val, 32)
 
             self.lr_scheduler.step()
-
+            if epoch == 1:
+                pseudo_label_acc = correct_pseudo_labels / total_target_samples
+                logger.debug(f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: {pseudo_label_acc * 100:.2f}% <<<')
             # saving the best model based on src risk
             if (epoch + 1) % 10 == 0 and avg_meter['entropy_loss'].avg < best_src_risk:
                 best_src_risk = avg_meter['entropy_loss'].avg
@@ -1620,5 +1663,186 @@ class SAFA(Algorithm):
             for key, val in avg_meter.items():
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
+        last_model = deepcopy(self.network.state_dict())
+        return last_model, best_model
+
+class SF_FPA(Algorithm):
+    """
+    SF-FPA: Source-Free Frequency-Prototype Alignment
+    基于频域自适应与源域类原型拉近的无源域适应算法
+    """
+
+    def __init__(self, backbone, configs, hparams, device):
+        super(SF_FPA, self).__init__(configs)
+
+        self.feature_extractor = backbone(configs)
+        self.classifier = classifier(configs)
+        
+        amp_scale = hparams.get('amp_scale', 0.2)
+        phase_scale = hparams.get('phase_scale', 0.2)
+        self.freq_adapter = FrequencyAdaptationLayer_Independent(
+            seq_len=configs.sequence_len,
+            channels=configs.input_channels,
+            amp_scale=amp_scale,
+            phase_scale=phase_scale,
+        ).to(device)
+        
+        self.network = nn.Sequential(self.freq_adapter, self.feature_extractor, self.classifier)
+
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=hparams["learning_rate"],
+            weight_decay=hparams["weight_decay"]
+        )
+
+        self.pre_optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=hparams["pre_learning_rate"],
+            weight_decay=hparams["weight_decay"]
+        )
+        self.device = device
+        self.hparams = hparams
+
+        self.lr_scheduler = StepLR(self.optimizer, step_size=hparams['step_size'], gamma=hparams['lr_decay'])
+
+        # Losses
+        self.cross_entropy = CrossEntropyLabelSmooth(self.configs.num_classes, device, epsilon=0.1)
+
+        # 源域特征原型保存变量
+        self.source_prototypes = None
+
+
+    def pretrain(self, src_dataloader, avg_meter, logger):
+
+        # 1. 正常源域监督训练
+        for epoch in range(1, self.hparams["num_epochs"] + 1):
+            for step, (src_x, src_y, _) in enumerate(src_dataloader):
+                src_x, src_y = src_x.float().to(self.device), src_y.long().to(self.device)
+
+                self.pre_optimizer.zero_grad()
+
+                src_feat, _ = self.feature_extractor(src_x)
+                src_pred = self.classifier(src_feat)
+
+                src_cls_loss = self.cross_entropy(src_pred, src_y)
+                src_cls_loss.backward()
+                self.pre_optimizer.step()
+
+                losses = {'cls_loss': src_cls_loss.detach().item()}
+                for key, val in losses.items():
+                    avg_meter[key].update(val, 32)
+
+            logger.debug(f'[Epoch : {epoch}/{self.hparams["num_epochs"]}]')
+            for key, val in avg_meter.items():
+                logger.debug(f'{key}\t: {val.avg:2.4f}')
+            logger.debug(f'-------------------------------------')
+
+        # 2. 统计并计算 Source 各类别的特征原型（Prototypes）
+        logger.debug(">>> Calculating Source Class Prototypes... <<<")
+        self.feature_extractor.eval()
+        proto_sums = None
+        proto_counts = torch.zeros(self.configs.num_classes, device=self.device)
+
+        with torch.no_grad():
+            for src_x, src_y, _ in src_dataloader:
+                src_x, src_y = src_x.float().to(self.device), src_y.long().to(self.device)
+                src_feat, _ = self.feature_extractor(src_x)
+
+                if proto_sums is None:
+                    feat_dim = src_feat.size(1)
+                    proto_sums = torch.zeros(self.configs.num_classes, feat_dim, device=self.device)
+
+                for c in range(self.configs.num_classes):
+                    mask = (src_y == c)
+                    if mask.sum() > 0:
+                        proto_sums[c] += src_feat[mask].sum(dim=0)
+                        proto_counts[c] += mask.sum()
+
+        # 计算特征均值并进行 L2 归一化
+        self.source_prototypes = proto_sums / proto_counts.unsqueeze(1).clamp(min=1)
+        self.source_prototypes = F.normalize(self.source_prototypes, p=2, dim=1)
+        self.feature_extractor.train()
+
+        src_only_model = deepcopy(self.network.state_dict())
+        return src_only_model
+
+
+    def update(self, trg_dataloader, avg_meter, logger):
+        best_src_risk = float('inf')
+        best_model = self.network.state_dict()
+
+        # 冻结特征提取器和分类器，仅训练 freq_adapter
+        for k, v in self.feature_extractor.named_parameters():
+            v.requires_grad = False
+        for k, v in self.classifier.named_parameters():
+            v.requires_grad = False
+
+        conf_thresh = self.hparams.get('conf_thresh', 0.7)  # 伪标签过滤阈值
+        align_wt = self.hparams.get('align_wt', 1.0)        # 原型拉近 Loss 权重
+
+        for epoch in range(1, self.hparams["num_epochs"] + 1):
+            correct_pseudo_labels = 0
+            total_target_samples = 0
+            for step, (trg_x, trg_y, trg_idx) in enumerate(trg_dataloader):
+
+                trg_x = trg_x.float().to(self.device)
+                trg_y = trg_y.long().to(self.device)
+                self.optimizer.zero_grad()
+
+                # Target 数据通过频域自适应层后进入特征提取器
+                trg_x_adapted = self.freq_adapter(trg_x)
+                trg_feat, _ = self.feature_extractor(trg_x_adapted)
+
+                # 计算概率预测
+                trg_pred = self.classifier(trg_feat)
+                trg_prob = F.softmax(trg_pred, dim=1)
+
+                with torch.no_grad():
+                    max_prob, pseudo_label = torch.max(trg_prob, dim=1)
+                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
+                    total_target_samples += trg_y.size(0)
+
+                # 原型特征拉近损失 (Prototype Alignment Loss)
+                conf_mask = max_prob >= conf_thresh
+
+                if conf_mask.sum() > 0:
+                    norm_trg_feat = F.normalize(trg_feat[conf_mask], p=2, dim=1)
+                    target_proto = self.source_prototypes[pseudo_label[conf_mask]]
+                    align_loss = (1.0 - (norm_trg_feat * target_proto).sum(dim=1)).mean()
+                else:
+                    align_loss = torch.tensor(0.0, device=self.device)
+
+                # Entropy loss & IM loss
+                trg_ent = self.hparams['ent_loss_wt'] * torch.mean(EntropyLoss(trg_prob)) 
+                trg_ent -= self.hparams['im'] * torch.sum(
+                    -trg_prob.mean(dim=0) * torch.log(trg_prob.mean(dim=0) + 1e-5))
+                
+                # 组合总 Loss
+                loss = trg_ent + align_wt * align_loss
+
+                loss.backward()
+                self.optimizer.step()
+
+                losses = {
+                    'entropy_loss': trg_ent.detach().item(), 
+                    'align_loss': align_loss.detach().item()
+                }
+                for key, val in losses.items():
+                    avg_meter[key].update(val, 32)
+
+            self.lr_scheduler.step()
+            if epoch == 1:
+                pseudo_label_acc = correct_pseudo_labels / total_target_samples
+                logger.debug(f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: {pseudo_label_acc * 100:.2f}% <<<')
+
+            if (epoch + 1) % 10 == 0 and avg_meter['entropy_loss'].avg < best_src_risk:
+                best_src_risk = avg_meter['entropy_loss'].avg
+                best_model = deepcopy(self.network.state_dict())
+
+            logger.debug(f'[Epoch : {epoch}/{self.hparams["num_epochs"]}]')
+            for key, val in avg_meter.items():
+                logger.debug(f'{key}\t: {val.avg:2.4f}')
+            logger.debug(f'-------------------------------------')
+
         last_model = deepcopy(self.network.state_dict())
         return last_model, best_model

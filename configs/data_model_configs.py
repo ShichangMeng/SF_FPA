@@ -91,8 +91,8 @@ class FD():
 class HAR():
     def __init__(self):
         super(HAR, self)
-        self.scenarios = [("2", "11"), ("6", "23"), ("7", "13"), ("9", "18"), ("12", "16"),  ]
-        # self.scenarios = [("7", "13")]
+        # self.scenarios = [("2", "11"), ("6", "23"), ("7", "13"), ("9", "18"), ("12", "16"),  ]
+        self.scenarios = [("2", "11"), ("12", "16"), ("9", "18"), ("6", "23"), ("7", "13"), ]
 
         self.class_names = ['walk', 'upstairs', 'downstairs', 'sit', 'stand', 'lie']
         self.sequence_len = 128
@@ -131,7 +131,9 @@ class WISDM(object):
         self.shuffle = True
         self.drop_last = False
         self.normalize = True
-
+        self.jitter_scale_ratio = 1.5
+        self.jitter_ratio = 2
+        self.max_seg = 12
         # model configs
         self.input_channels = 3
         self.kernel_size = 5
@@ -173,8 +175,9 @@ class HHAR_SA(object):  ## HHAR dataset, SAMSUNG device.
         super(HHAR_SA, self).__init__()
         self.sequence_len = 128
         # self.scenarios = [("0", "2")]
-        self.scenarios = [("0", "2"), ("1", "6"),("2", "4"),("4", "0"),("4", "5"),\
-            ("5", "1"),("5", "2"),("7", "2"),("7", "5"),("8", "4")]
+        # self.scenarios = [("0", "2"), ("1", "6"),("2", "4"),("4", "0"),("4", "5"),\
+        #     ("5", "1"),("5", "2"),("7", "2"),("7", "5"),("8", "4")]
+        self.scenarios = [("0", "6"), ("1", "6"),("2", "7"),("3", "8"),("4", "5")]
         self.class_names = ['bike', 'sit', 'stand', 'walk', 'stairs_up', 'stairs_down']
         self.num_classes = 6
         self.shuffle = True
@@ -220,7 +223,7 @@ class Boiler(object):
         self.class_names = ['0','1']
         self.sequence_len = 6
         # self.scenarios = [("1", "2"),("1", "3"),("2", "3")]
-        self.scenarios = [("1", "2")]
+        self.scenarios = [("1", "2"),("1", "3"),("2", "1"),("2", "3"),("3", "1"),("3", "2")]
         self.num_classes = 2
         self.sequence_len = 36
         self.shuffle = True

@@ -11,7 +11,7 @@ import warnings
 import sklearn.exceptions
 import collections
 import time
-from dataloader.dataloader import data_generator
+from dataloader.dataloader import data_generator, data_generator_aug
 from configs.data_model_configs import get_dataset_class
 from configs.hparams import get_hparams_class
 from algorithms.algorithms import get_algorithm_class
@@ -269,6 +269,6 @@ class AbstractTrainer(object):
         format_func = lambda x: f"{x:.4f}" if isinstance(x, float) else x
 
         # Apply the formatting function to each element in the tables
-        table = table.map(format_func)
+        table = table.applymap(format_func)
 
         return table 

@@ -16,21 +16,20 @@ class FD():
             'lr_decay': 0.5
         }
         self.alg_hparams = {
-            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,
+            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,
                      'target_cls_wt': 0},
             'AaD': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'beta': 5, 'alpha': 1},
             'NRC': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'epsilon': 1e-5},
-            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169},
-            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,  'TOV_wt': 0.169, 'amp_scale': 0.80482, 'phase_scale': 1.69806,},
+            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,  'TOV_wt': 0.169},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,  'TOV_wt': 0.169, 'amp_scale': 0.23958, 'phase_scale': 0.18379,},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305, 'align_wt': 0.037414, 'amp_scale': 0.23958, 'phase_scale': 0.18379, 'conf_thresh': 0.77752},
             'TemSR': {
-                     'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467,
+                     'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
-            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.00005, 'ent_loss_wt': 0.8467, 'im': 0.2983,
-                     'target_cls_wt': 1, 'beta': 10, 'alpha': 1},
-            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.8467, 'im': 0.2983,
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,
                      'target_cls_wt': 1, 'aad_wt':0.01, 'beta': 10, 'alpha': 1},
         }
 
@@ -45,22 +44,22 @@ class WISDM():
                 'lr_decay': 0.5
         }
         self.alg_hparams = {
-            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
+            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.91094, 'im': 0.10907,
                      'target_cls_wt': 0.3312},
             'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.001, 'beta': 10, 'alpha': 1},
 
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'epsilon': 1e-5},
-            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0, 'phase_scale': 0.88275,}, #'amp_scale': 0.76704, 'phase_scale': 0.88275,
+            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5},
+            'SFTSDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5, 'amp_scale': 0.59687, 'phase_scale': 0.57247,},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907, 'align_wt': 1.07693, 'amp_scale': 0.59687, 'phase_scale': 0.57247, 'conf_thresh': 0.90212},
             'TemSR': {
-                     'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897,
+                     'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 8,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
-            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
-                     'target_cls_wt': 0.05,  'beta': 10, 'alpha': 1},
-            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,
                      'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
         }
 
@@ -75,21 +74,20 @@ class Boiler():
                 'lr_decay': 0.5
         }
         self.alg_hparams = {
-            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.6709, 'im': 0.8969,
+            'SHOT': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631, 'im': 0.92552,
                      'target_cls_wt': 0.3312},
-            'AaD': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'beta': 10, 'alpha': 1},
-            'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
-            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5},
-            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
+            'AaD': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'beta': 10, 'alpha': 1},
+            'NRC': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'epsilon': 1e-5},
+            'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631, 'im': 0.92552,  'TOV_wt': 0.5},
+            'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631, 'im': 0.92552,  'TOV_wt': 0.5, 'amp_scale': 0.7167, 'phase_scale': 0.46981},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631, 'im': 0.92552, 'align_wt': 0.89126, 'amp_scale': 0.7167, 'phase_scale': 0.46981, 'conf_thresh': 0.64167},
             'TemSR': {
-                     'pre_learning_rate': 0.003, 'learning_rate': 0.000007, 'ent_loss_wt': 4.87809,
+                     'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
                      'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 5.26417,'AR_hid_dim': 128, 'num_splits': 4,
                      'num_masked': 1,'anchor_percent': 0.3, 'CL_temp': 0.05, 'detach': False
                      },
-            'TPDS': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
-                     'target_cls_wt': 0.05,  'beta': 10, 'alpha': 1},
-            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514,
+            'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.040631, 'im': 0.92552,
                      'target_cls_wt': 0.15, 'aad_wt':0.001, 'beta': 9, 'alpha': 1},
         }
 
@@ -111,6 +109,7 @@ class EEG():
             'NRC': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385},
             'SAFA': {'pre_learning_rate':  0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'TOV_wt': 0.6385, 'amp_scale': 0.76704, 'phase_scale': 0.88275},
+            'SF_FPA': {'pre_learning_rate': 0.003, 'learning_rate': 0.00001, 'ent_loss_wt': 0.4216, 'im': 0.5514, 'align_wt': 0.6385, 'amp_scale': 0.76704, 'phase_scale': 0.88275, 'conf_thresh': 0.7},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00005, 'ent_loss_wt': 1,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 1, 'Gent': True, 'src_like_epochs': 3,
@@ -146,6 +145,7 @@ class HAR():
                       'num_masked': 1, 'anchor_percent':0.3, 'CL_temp': 0.01, 'detach': True
                       },
             'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759, 'align_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275, 'conf_thresh': 0.7},
             'CESFDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
                      'target_cls_wt': 0.01,  'beta': 10, 'alpha': 1, 'aad_wt':0.025},
         }
@@ -172,8 +172,9 @@ class HHAR_SA():
                       'disc_loss_wt': 50, 'src_like_entropy_wt': 1.5, 'Gent': True, 'src_like_epochs': 3,
                       'trg_disc_epochs': 3, 'trg_max_min_loss_wt': 3.64, 'AR_hid_dim': 64, 'num_splits': 8,
                       'num_masked': 1, 'anchor_percent':0.3, 'CL_temp': 0.01, 'detach': True
-                     },
+                      },
             'CESFDA': {'pre_learning_rate': 0.003, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,
                      'target_cls_wt': 0.01, 'aad_wt':0.02,'beta': 9, 'alpha': 1},
             'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759,  'TOV_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275,},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.0001, 'ent_loss_wt': 0.05897, 'im': 0.2759, 'align_wt': 0.5, 'amp_scale': 0.76704, 'phase_scale': 0.88275, 'conf_thresh': 0.7},
         }

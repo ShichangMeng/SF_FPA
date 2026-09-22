@@ -131,11 +131,28 @@ class SpectralConv1d(nn.Module):
         #Compute Fourier coeffcients up to factor of e^(- something constant)
         x = torch.cos(x)
         x_ft = torch.fft.rfft(x,norm='ortho')
+        x_ft2 = torch.fft.fft(x).abs()
+    
         out_ft = torch.zeros(batchsize, self.out_channels, x.size(-1)//2 + 1,  device=x.device, dtype=torch.cfloat)
+        
         out_ft[:, :, :self.modes1] = self.compl_mul1d(x_ft[:, :, :self.modes1], self.weights1) 
-        r = out_ft[:, :, :self.modes1].abs()
-        p = out_ft[:, :, :self.modes1].angle() 
-        return torch.concat([r,p],-1), out_ft
+        
+        a = out_ft[:, :, :self.modes1].abs() # amplitude
+        p = out_ft[:, :, :self.modes1].angle() # phase
+        
+        return torch.cat([a,p],-1), out_ft
+
+class classifier2(nn.Module):
+    def __init__(self, configs):
+        super(classifier, self).__init__()
+
+        model_output_dim = configs.features_len
+        self.logits = nn.Linear(2*model_output_dim * configs.final_out_channels, configs.num_classes)
+        
+    
+    def forward(self, x):
+        predictions = self.logits(x)
+        return predictions
 
 class tf_encoder(nn.Module):
     def __init__(self, configs):
@@ -144,20 +161,35 @@ class tf_encoder(nn.Module):
         self.width = configs.input_channels
         self.length =  configs.sequence_len
         self.freq_feature = SpectralConv1d(self.width, self.width, self.modes1,self.length)  # Frequency Feature Encoder
-        self.bn_freq = nn.BatchNorm1d(configs.fourier_modes*2//configs.stride)   # It doubles because frequency features contain both amplitude and phase
+        self.bn_freq = nn.BatchNorm1d(configs.fourier_modes*2)   # It doubles because frequency features contain both amplitude and phase
         self.cnn = CNN(configs).to('cuda')  # Time Feature Encoder
-        self.avg = nn.Conv1d(self.width, 1, kernel_size=3 ,
-                  stride=configs.stride, bias=False, padding=(3 // 2))   
+        self.cnn_f = CNN(configs).to('cuda')  # Frequency Feature Extractor
+        self.TSlength_aligned = configs.final_out_channels * configs.features_len
+        self.projector = nn.Sequential(
+            nn.Linear(self.TSlength_aligned, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, self.TSlength_aligned)
+        )
+
+        self.projector_f = nn.Sequential(
+            nn.Linear(self.TSlength_aligned, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, self.TSlength_aligned)
+        )
 
 
-    def forward(self, x):
-        ef, out_ft = self.freq_feature(x)
-        ef = F.relu(self.bn_freq(self.avg(ef).squeeze(1)))
-        et, out_tt = self.cnn(x)
-        f = torch.concat([ef,et],-1)
-        # out = torch.concat([out_ft,out_tt],-1)
-        return f, out_tt, out_ft
-
+    def forward(self, xt, xf):
+        
+        ef, _ = self.cnn_f(xf)
+        et, etx = self.cnn(xt)
+       
+        z_time = self.projector(et)
+        z_freq = self.projector_f(ef)
+        
+        return et, etx, ef, z_time, z_freq
+    
 class tf_decoder(nn.Module):
     def __init__(self, configs):
         super(tf_decoder, self).__init__()
@@ -176,26 +208,21 @@ class tf_decoder(nn.Module):
     
 class FrequencyAdaptationLayer(nn.Module):
     """
-    频域自适应层
-    1. 将时域信号转换到频域 (FFT)
-    2. 使用 MLP 预测 Δ幅值 和 Δ相位
-    3. 叠加 Δ 并反变换回时域 (iFFT)
+    频域自适应层 (Channel-Shared 修复版)
     """
     def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, hidden_dim=64):
         super(FrequencyAdaptationLayer, self).__init__()
         
-        # rfft 后的频率维度长度
         self.freq_len = seq_len // 2 + 1
         self.amp_scale = amp_scale
         self.phase_scale = phase_scale
-        # 幅值调节 MLP: Input: (freq_len), Output: (freq_len)
-        # 这里设计为对每个 Channel 独立应用或者共享权重，
-        # 为了简单起见，这里利用 Linear 的特性，对最后一维(频率维)进行全连接操作
+        
+        # 幅值调节 MLP
         self.amp_mlp = nn.Sequential(
             nn.Linear(self.freq_len, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, self.freq_len),
-            nn.Tanh() # 限制幅度变化的范围，防止崩坏
+            nn.Tanh()
         )
         
         # 相位调节 MLP
@@ -203,17 +230,144 @@ class FrequencyAdaptationLayer(nn.Module):
             nn.Linear(self.freq_len, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, self.freq_len),
-            nn.Tanh() # 限制相位变化的范围 (-1, 1) -> 乘以系数控制弧度
+            nn.Tanh()
+        )
+
+        # 最后一层权重和偏置置零，确保初始状态为恒等映射 (Identity)
+        nn.init.zeros_(self.amp_mlp[2].weight)
+        nn.init.zeros_(self.amp_mlp[2].bias)
+        nn.init.zeros_(self.phase_mlp[2].weight)
+        nn.init.zeros_(self.phase_mlp[2].bias)
+
+    def forward(self, x):
+        # x: [Batch, Channel, Seq_Len]
+        fft_x = torch.fft.rfft(x, dim=-1) 
+        
+        amp = torch.abs(fft_x)
+        phase = torch.angle(fft_x)
+        
+        # 1. 计算 Delta
+        delta_amp = self.amp_mlp(amp) * self.amp_scale  
+        # 相位变化范围映射到 [-phase_scale * pi, phase_scale * pi]
+        delta_phase = self.phase_mlp(phase) * self.phase_scale * math.pi 
+        
+        # 2. 叠加修正 (幅值乘法缩放，相位加法偏移)
+        new_amp = amp * (1.0 + delta_amp)
+        new_phase = phase + delta_phase
+        
+        # 3. iFFT 反变换
+        new_fft = torch.polar(new_amp, new_phase)
+        x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
+        
+        return x_adapted
+    
+class ChannelIndependentLinear(nn.Module):
+    def __init__(self, channels, in_features, out_features):
+        super(ChannelIndependentLinear, self).__init__()
+        self.channels = channels
+        self.weight = nn.Parameter(torch.Tensor(channels, in_features, out_features))
+        self.bias = nn.Parameter(torch.Tensor(channels, out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, x):
+        return torch.einsum('bci,cio->bco', x, self.weight) + self.bias
+
+
+class FrequencyAdaptationLayer_Independent(nn.Module):
+    """
+    频域自适应层 (Channel-Independent 完全独立修复版)
+    """
+    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, hidden_dim=64):
+        super(FrequencyAdaptationLayer_Independent, self).__init__()
+        
+        self.freq_len = seq_len // 2 + 1
+        self.amp_scale = amp_scale
+        self.phase_scale = phase_scale
+        
+        # 幅值调节 MLP (通道独立)
+        self.amp_mlp = nn.Sequential(
+            ChannelIndependentLinear(channels, self.freq_len, hidden_dim),
+            nn.ReLU(),
+            ChannelIndependentLinear(channels, hidden_dim, self.freq_len),
+            nn.Tanh()
+        )
+        
+        # 相位调节 MLP (通道独立，修复原代码误用普通 Linear 的问题)
+        self.phase_mlp = nn.Sequential(
+            ChannelIndependentLinear(channels, self.freq_len, hidden_dim),
+            nn.ReLU(),
+            ChannelIndependentLinear(channels, hidden_dim, self.freq_len),
+            nn.Tanh()
+        )
+
+        # 最后一层初始化为 0
+        nn.init.zeros_(self.amp_mlp[2].weight)
+        nn.init.zeros_(self.amp_mlp[2].bias)
+        nn.init.zeros_(self.phase_mlp[2].weight)
+        nn.init.zeros_(self.phase_mlp[2].bias)
+
+    def forward(self, x):
+        fft_x = torch.fft.rfft(x, dim=-1) 
+        
+        amp = torch.abs(fft_x)
+        phase = torch.angle(fft_x)
+        
+        delta_amp = self.amp_mlp(amp) * self.amp_scale  
+        delta_phase = self.phase_mlp(phase) * self.phase_scale * math.pi
+        
+        # 幅值乘法，相位加法
+        new_amp = amp * (1.0 + delta_amp)
+        new_phase = phase + delta_phase
+        
+        new_fft = torch.polar(new_amp, new_phase)
+        x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
+        
+        return x_adapted
+    
+class FrequencyAdaptationLayer_linear(nn.Module):
+    """
+    频域自适应层 (Linear 版本)
+    将原来的 MLP 替换为单层 Linear 映射，用于消融实验测试。
+    1. 将时域信号转换到频域 (FFT)
+    2. 使用 Linear 预测 Δ幅值 和 Δ相位
+    3. 叠加 Δ 并反变换回时域 (iFFT)
+    """
+    # 注意：这里删除了 hidden_dim 参数，因为单层 Linear 不需要隐藏层
+    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1):
+        super(FrequencyAdaptationLayer_linear, self).__init__()
+        
+        # rfft 后的频率维度长度
+        self.freq_len = seq_len // 2 + 1
+        self.amp_scale = amp_scale
+        self.phase_scale = phase_scale
+        
+        # 幅值调节 Linear
+        # 直接从 freq_len 映射到 freq_len，相当于一个最简单的线性组合变换
+        self.amp_linear = nn.Sequential(
+            nn.Linear(self.freq_len, self.freq_len),
+            nn.Tanh() # 强烈建议保留 Tanh，限制幅度变化的范围，防止反变换时梯度爆炸
+        )
+        
+        # 相位调节 Linear
+        self.phase_linear = nn.Sequential(
+            nn.Linear(self.freq_len, self.freq_len),
+            nn.Tanh() # 限制相位变化的范围 (-1, 1)
         )
 
         # 初始化为 0，保证初始状态下是对等变换 (Identity)
         # 这样刚开始训练时不会破坏原始数据分布
-        for m in self.amp_mlp.modules():
+        for m in self.amp_linear.modules():
             if isinstance(m, nn.Linear):
                 nn.init.constant_(m.weight, 0)
                 nn.init.constant_(m.bias, 0)
         
-        for m in self.phase_mlp.modules():
+        for m in self.phase_linear.modules():
             if isinstance(m, nn.Linear):
                 nn.init.constant_(m.weight, 0)
                 nn.init.constant_(m.bias, 0)
@@ -222,34 +376,115 @@ class FrequencyAdaptationLayer(nn.Module):
         # x: [Batch, Channel, Seq_Len]
         
         # 1. FFT 变换
-        # rfft 返回的是复数张量
         fft_x = torch.fft.rfft(x, dim=-1) 
         
         # 提取幅值和相位
         amp = torch.abs(fft_x)
         phase = torch.angle(fft_x)
         
-        # 2. 计算 Delta
-        # MLP 输入是当前的幅值/相位分布
-        # 注意：amp 和 phase 的形状是 [B, C, Freq_Len]
-        # nn.Linear 默认作用在最后一个维度，所以正好
-
-        delta_amp = self.amp_mlp(amp) * self.amp_scale  # 乘以系数限制初始扰动大小
-        delta_phase = self.phase_mlp(phase) * self.phase_scale # 限制相位改变量 (比如最多 0.1 弧度)
+        # 2. 计算 Delta (直接使用单层 Linear)
+        delta_amp = self.amp_linear(amp) * self.amp_scale  
+        delta_phase = self.phase_linear(phase) * self.phase_scale 
         
         # 3. 叠加修正
         new_amp = amp * (1 + delta_amp)
         new_phase = phase * (1 + delta_phase)
         
         # 4. 组合并反变换 iFFT
-        # 构造复数
         new_fft = torch.polar(new_amp, new_phase)
-        
-        # 反变换回时域
         x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
         
         return x_adapted
 
+class TransformerAdapter(nn.Module):
+    """
+    频域自适应的 Transformer 核心组件
+    把每一个频率点当作一个 Token，利用 Self-Attention 捕捉全局频率的非线性相关性
+    """
+    def __init__(self, freq_len, d_model=16, nhead=4, num_layers=1):
+        super().__init__()
+        # 1. 维度扩增：将单维度的标量特征投射到 d_model 维度
+        self.proj_in = nn.Linear(1, d_model)
+        
+        # 2. 位置编码：由于频率本身具有绝对的顺序意义（低频到高频），加入可学习的位置编码
+        self.pos_embed = nn.Parameter(torch.zeros(1, freq_len, d_model))
+        
+        # 3. Transformer 编码器层
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, 
+            nhead=nhead, 
+            dim_feedforward=d_model * 2, 
+            batch_first=True,
+            dropout=0.1
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+        # 4. 降维输出：将 d_model 投射回 1，并用 Tanh 限制范围
+        self.proj_out = nn.Linear(d_model, 1)
+        self.tanh = nn.Tanh()
+
+        # 初始化为 0，保证初始状态是对等变换 (Identity mapping)
+        nn.init.constant_(self.proj_out.weight, 0)
+        nn.init.constant_(self.proj_out.bias, 0)
+
+    def forward(self, x):
+        # x shape: [Batch, Channel, Freq_Len]
+        B, C, F = x.shape
+        
+        # 将 Batch 和 Channel 展平，作为独立的样本序列输入
+        x = x.view(B * C, F, 1)  # [B*C, Freq_Len, 1]
+        
+        # 投影并加上位置编码
+        x = self.proj_in(x) + self.pos_embed
+        
+        # Self-Attention 交互
+        x = self.transformer(x)
+        
+        # 映射回单维并激活
+        x = self.proj_out(x).squeeze(-1)  # [B*C, Freq_Len]
+        x = self.tanh(x)
+        
+        # 恢复原有形状
+        return x.view(B, C, F)
+
+
+class FrequencyAdaptationLayer_transformer(nn.Module):
+    """
+    频域自适应层 (Transformer / Self-Attention 版本)
+    用于消融实验，证明 MLP 是性能与复杂度的最佳平衡点。
+    """
+    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, d_model=16, nhead=4):
+        super(FrequencyAdaptationLayer_transformer, self).__init__()
+        
+        self.freq_len = seq_len // 2 + 1
+        self.amp_scale = amp_scale
+        self.phase_scale = phase_scale
+        
+        # 使用 Transformer 替换原来的 MLP
+        self.amp_adapter = TransformerAdapter(self.freq_len, d_model=d_model, nhead=nhead)
+        self.phase_adapter = TransformerAdapter(self.freq_len, d_model=d_model, nhead=nhead)
+
+    def forward(self, x):
+        # 1. FFT 变换
+        fft_x = torch.fft.rfft(x, dim=-1) 
+        
+        amp = torch.abs(fft_x)
+        phase = torch.angle(fft_x)
+        
+        # 2. 计算 Delta (使用 Transformer)
+        delta_amp = self.amp_adapter(amp) * self.amp_scale
+        delta_phase = self.phase_adapter(phase) * self.phase_scale
+        
+        # 3. 叠加修正
+        new_amp = amp * (1 + delta_amp)
+        new_phase = phase * (1 + delta_phase)
+        
+        # 4. iFFT 反变换
+        new_fft = torch.polar(new_amp, new_phase)
+        x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
+        
+        return x_adapted
+    
 class Signal_Recover(nn.Module):
     def __init__(self, configs, hparams):
         super(Signal_Recover, self).__init__()
@@ -349,3 +584,105 @@ def segment_mask_v3(x, posi, padding, num_segments, num_removed=2):
     masked_x = rearrange(masked_patches, 'a b p l -> a b (p l)', p=p)
 
     return masked_x
+
+def get_distances(X, Y, dist_type="cosine"):
+        if dist_type == "euclidean":
+            distances = torch.cdist(X, Y)
+        elif dist_type == "cosine":
+            distances = 1 - torch.matmul(F.normalize(X, dim=1), F.normalize(Y, dim=1).T)
+        else:
+            raise NotImplementedError(f"{dist_type} distance not implemented.")
+
+        return distances
+
+@torch.no_grad()
+def soft_k_nearest_neighbors(features, features_bank, probs_bank, num_neighbors):
+    pred_probs = []
+    pred_probs_all = []
+
+    for feats in features.split(128):
+        distances = get_distances(feats, features_bank)
+        _, idxs = distances.sort()
+        idxs = idxs[:, : num_neighbors]
+        
+        # (64, num_nbrs, num_classes), average over dim=1
+        probs = probs_bank[idxs, :].mean(1)
+        pred_probs.append(probs)
+        # (64, num_nbrs, num_classes)
+        probs_all = probs_bank[idxs, :]
+        pred_probs_all.append(probs_all)
+
+    pred_probs_all = torch.cat(pred_probs_all)
+    pred_probs = torch.cat(pred_probs)
+    
+    #Pseudolabels
+    _, pred_labels = pred_probs.max(dim=1)
+    # (64, num_nbrs, num_classes), max over dim=2
+    _, pred_labels_all = pred_probs_all.max(dim=2)
+    #First keep maximum for all classes between neighbors and then keep max between classes
+    _, pred_labels_hard = pred_probs_all.max(dim=1)[0].max(dim=1)
+
+    return pred_labels, pred_probs, pred_labels_all, pred_labels_hard
+
+def refine_predictions(
+    features,
+    probs,
+    banks, num_neighbors):
+    feature_bank = banks["features"]
+    probs_bank = banks["probs"]
+    pred_labels, probs, pred_labels_all, pred_labels_hard = soft_k_nearest_neighbors(features, feature_bank, probs_bank, num_neighbors)
+
+    return pred_labels, probs, pred_labels_all, pred_labels_hard
+
+@torch.no_grad()
+def update_labels(banks, idxs, features, logits):
+    probs = F.softmax(logits, dim=1)
+
+    start = banks["ptr"]
+    end = start + len(idxs)
+    idxs_replace = torch.arange(start, end).cuda() % len(banks["features"])
+    banks["features"][idxs_replace, :] = features
+    banks["probs"][idxs_replace, :] = probs
+    banks["ptr"] = end % len(banks["features"])
+
+@torch.no_grad()
+def eval_and_label_dataset(epoch, FE, classifier, banks, test_dataloader, train_dataloader, num_neighbors):
+    print("Evaluating Dataset!")
+    
+    FE.eval()
+    classifier.eval()
+    logits, indices, gt_labels = [], [], []
+    features = []           
+
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(test_dataloader):
+        # for batch_idx, batch in enumerate(train_dataloader):
+            test_inputs, test_targets, test_idxs, test_inputs_f = batch[0].cuda(), batch[1].cuda(), batch[2].cuda(), batch[6].cuda()
+            # inputs, targets, idxs = batch[0].cuda(), batch[2].cuda(), batch[3].cuda()
+            feats, _, _, _, _ = FE(test_inputs, test_inputs_f)
+            # print(f'batch_idx:{batch_idx}')
+            # print(f'feats.shape:{feats.shape}')
+
+            logits_cls = classifier(feats)
+
+            features.append(feats)
+            gt_labels.append(test_targets)
+            logits.append(logits_cls)
+            indices.append(test_idxs)  
+
+    features = torch.cat(features)
+    gt_labels = torch.cat(gt_labels)
+    logits = torch.cat(logits)
+    indices = torch.cat(indices)
+
+    probs = F.softmax(logits, dim=1)
+    rand_idxs = torch.randperm(len(features)).cuda()
+    banks = {
+        "features": features[rand_idxs][: 16384], #hanya diacak urutan indeksnya menggunakan rand_idxs
+        "probs": probs[rand_idxs][: 16384],
+        "ptr": 0,
+    }
+        
+    FE.train()
+    classifier.train()
+    return banks
