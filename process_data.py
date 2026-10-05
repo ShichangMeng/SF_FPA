@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # 1. 读取 CSV 文件
-df = pd.read_csv('exp/WISDM/no_Tanh/results.csv')
+df = pd.read_csv('/mnt/cache/mengshichang/exp_boiler_loss_abc_three_scenarios/Boiler/A_current_im_align_ep5/best_results.csv')
 
 # 你的 CSV 最后两行是统计行 (mean, std)，读取时最好把它们去掉，只保留实验数据
 # 假设最后两行是 summary，可以通过判断 'run' 列是否是数字来过滤

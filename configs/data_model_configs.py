@@ -17,7 +17,7 @@ class EEG():
         self.sequence_len = 3000
         self.scenarios = [("0", "11"), ("12", "5"), ("7", "18"), ("16", "1"), ("9", "14")]
         self.shuffle = True
-        self.drop_last = True
+        self.drop_last = False
         self.normalize = True
 
         # model configs
@@ -222,8 +222,8 @@ class Boiler(object):
         super(Boiler, self).__init__()
         self.class_names = ['0','1']
         self.sequence_len = 6
-        # self.scenarios = [("1", "2"),("1", "3"),("2", "3")]
-        self.scenarios = [("1", "2"),("1", "3"),("2", "1"),("2", "3"),("3", "1"),("3", "2")]
+        self.scenarios = [("1", "2"),("1", "3"),("2", "3")]
+        # self.scenarios = [("1", "2"),("1", "3"),("2", "1"),("2", "3"),("3", "1"),("3", "2")]
         self.num_classes = 2
         self.sequence_len = 36
         self.shuffle = True

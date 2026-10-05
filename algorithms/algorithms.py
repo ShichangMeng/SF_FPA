@@ -40,6 +40,11 @@ class Algorithm(torch.nn.Module):
     def update(self, *args, **kwargs):
         raise NotImplementedError
 
+    def target_features(self, x):
+        if hasattr(self, "freq_adapter"):
+            x = self.freq_adapter(x)
+        return self.feature_extractor(x)
+
 
 class SHOT(Algorithm):
 
@@ -124,7 +129,7 @@ class SHOT(Algorithm):
                 self.optimizer.zero_grad()
 
                 # Extract features
-                trg_feat, _ = self.feature_extractor(trg_x)
+                trg_feat, _ = self.target_features(trg_x)
                 trg_pred = self.classifier(trg_feat)
 
                 # pseudo labeling loss
@@ -171,7 +176,7 @@ class SHOT(Algorithm):
             for inputs, labels, _ in trg_loader:
                 inputs = inputs.float().to(self.device)
 
-                features, _ = self.feature_extractor(inputs)
+                features, _ = self.target_features(inputs)
                 predictions = self.classifier(features)
                 preds.append(predictions)
                 feas.append(features)
@@ -282,10 +287,10 @@ class AaD(Algorithm):
 
             for step, (trg_x, _, trg_idx) in enumerate(trg_dataloader):
                 trg_x = trg_x.float().to(self.device)
-                num_samples = len(trg_dataloader.dataset)
+                trg_idx = trg_idx.long().to(self.device)
 
                 # Extract features
-                features, _ = self.feature_extractor(trg_x)
+                features, _ = self.target_features(trg_x)
                 predictions = self.classifier(features)
 
                 # output softmax probs
@@ -313,7 +318,9 @@ class AaD(Algorithm):
 
                 loss = torch.mean((F.kl_div(softmax_out_un, score_near, reduction='none').sum(-1)).sum(1))
 
-                mask = torch.ones((trg_x.shape[0], trg_x.shape[0]))
+                mask = torch.ones(
+                    (trg_x.shape[0], trg_x.shape[0]), device=self.device
+                )
                 diag_num = torch.diag(mask)
                 mask_diag = torch.diag_embed(diag_num)
                 mask = mask - mask_diag
@@ -321,7 +328,7 @@ class AaD(Algorithm):
 
                 dot_neg = softmax_out @ copy  # batch x batch
 
-                dot_neg = (dot_neg * mask.cuda()).sum(-1)  # batch
+                dot_neg = (dot_neg * mask.to(self.device)).sum(-1)  # batch
                 neg_pred = torch.mean(dot_neg)
                 loss += neg_pred * alpha
 
@@ -338,26 +345,37 @@ class AaD(Algorithm):
             logger.debug(f'-------------------------------------')
         return last_model, best_model
 
+    @torch.no_grad()
     def build_feat_score_bank(self, data_loader):
-        fea_bank = torch.empty(0).cuda()
-        score_bank = torch.empty(0).cuda()
+        num_samples = len(data_loader.dataset)
+        fea_bank = None
+        score_bank = torch.empty(
+            num_samples, self.configs.num_classes, device=self.device
+        )
 
+        fe_was_training = self.feature_extractor.training
+        classifier_was_training = self.classifier.training
         self.feature_extractor.eval()
         self.classifier.eval()
 
-        # Process data batch by batch
         for data in data_loader:
-            batch_data = data[0].cuda()  # Assuming the first element in your batch is the data. Adjust as needed.
+            batch_data = data[0].float().to(self.device)
+            batch_idx = data[2].long().to(self.device)
 
-            batch_feat,_ = self.feature_extractor(batch_data)
+            batch_feat, _ = self.target_features(batch_data)
             norm_feats = F.normalize(batch_feat)
             batch_pred = self.classifier(batch_feat)
             batch_probs = nn.Softmax(dim=-1)(batch_pred)
 
-            # Update the banks
-            fea_bank = torch.cat((fea_bank, norm_feats.detach()), 0)
-            score_bank = torch.cat((score_bank, batch_probs.detach()), 0)
+            if fea_bank is None:
+                fea_bank = torch.empty(
+                    num_samples, norm_feats.size(1), device=self.device
+                )
+            fea_bank[batch_idx] = norm_feats
+            score_bank[batch_idx] = batch_probs
 
+        self.feature_extractor.train(fe_was_training)
+        self.classifier.train(classifier_was_training)
         return fea_bank, score_bank
 
 class NRC(Algorithm):
@@ -427,6 +445,7 @@ class NRC(Algorithm):
         best_src_risk = float('inf')
         best_model = self.network.state_dict()
         last_model = self.network.state_dict()
+        fea_bank, score_bank = self.build_feat_score_bank(trg_dataloader)
 
         for epoch in range(1, self.hparams["num_epochs"] + 1):
             correct_pseudo_labels = 0
@@ -434,8 +453,9 @@ class NRC(Algorithm):
             for step, (trg_x, trg_y, trg_idx) in enumerate(trg_dataloader):
                 trg_x = trg_x.float().to(self.device)
                 trg_y = trg_y.long().to(self.device)
+                trg_idx = trg_idx.long().to(self.device)
                 # Extract features
-                features, _ = self.feature_extractor(trg_x)
+                features, _ = self.target_features(trg_x)
                 predictions = self.classifier(features)
                 with torch.no_grad():
                     # 获取预测的伪标签 (取 logits 最大值对应的索引)
@@ -443,17 +463,13 @@ class NRC(Algorithm):
                     # 统计预测正确的数量
                     correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
                     total_target_samples += trg_y.size(0)
-                num_samples = len(trg_dataloader.dataset)
-                fea_bank = torch.randn(num_samples, self.configs.final_out_channels * self.configs.features_len)
-                score_bank = torch.randn(num_samples, self.configs.num_classes).cuda()
                 softmax_out = nn.Softmax(dim=1)(predictions)
 
                 with torch.no_grad():
                     output_f_norm = F.normalize(features)
-                    output_f_ = output_f_norm.cpu().detach().clone()
-
-                    fea_bank[trg_idx] = output_f_.detach().clone().cpu()
-                    score_bank[trg_idx] = softmax_out.detach().clone()
+                    output_f_ = output_f_norm.detach()
+                    fea_bank[trg_idx] = output_f_
+                    score_bank[trg_idx] = softmax_out.detach()
 
                     distance = output_f_ @ fea_bank.T
                     _, idx_near = torch.topk(distance,
@@ -469,7 +485,7 @@ class NRC(Algorithm):
                     _, idx_near_near = torch.topk(distance_, dim=-1, largest=True,
                                                   k=5 + 1)  # M near neighbors for each of above K ones
                     idx_near_near = idx_near_near[:, :, 1:]  # batch x K x M
-                    trg_idx_ = trg_idx.unsqueeze(-1).unsqueeze(-1)
+                    trg_idx_ = trg_idx.view(-1, 1, 1)
                     match = (
                             idx_near_near == trg_idx_).sum(-1).float()  # batch x K
                     weight = torch.where(
@@ -498,7 +514,7 @@ class NRC(Algorithm):
                                                             -1)  # batch x C x 1
                 const = torch.mean(
                     (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) *
-                     weight_kk.cuda()).sum(
+                     weight_kk.to(self.device)).sum(
                         1))  # kl_div here equals to dot product since we do not use log for score_near_kk
                 loss = torch.mean(const)
 
@@ -506,7 +522,7 @@ class NRC(Algorithm):
                 softmax_out_un = softmax_out.unsqueeze(1).expand(-1, 5, -1)  # batch x K x C
 
                 loss += torch.mean(
-                    (F.kl_div(softmax_out_un, score_near, reduction='none').sum(-1) * weight.cuda()).sum(1))
+                    (F.kl_div(softmax_out_un, score_near, reduction='none').sum(-1) * weight.to(self.device)).sum(1))
 
                 # self, if not explicitly removing the self feature in expanded neighbor then no need for this
                 # loss += -torch.mean((softmax_out * score_self).sum(-1))
@@ -539,6 +555,88 @@ class NRC(Algorithm):
             logger.debug(f'-------------------------------------')
 
         return last_model, best_model
+
+    @torch.no_grad()
+    def build_feat_score_bank(self, data_loader):
+        num_samples = len(data_loader.dataset)
+        fea_bank = None
+        score_bank = torch.empty(
+            num_samples, self.configs.num_classes, device=self.device
+        )
+        fe_was_training = self.feature_extractor.training
+        classifier_was_training = self.classifier.training
+        self.feature_extractor.eval()
+        self.classifier.eval()
+
+        for batch_x, _, batch_idx in data_loader:
+            batch_x = batch_x.float().to(self.device)
+            batch_idx = batch_idx.long().to(self.device)
+            features, _ = self.target_features(batch_x)
+            probs = F.softmax(self.classifier(features), dim=1)
+            norm_features = F.normalize(features)
+            if fea_bank is None:
+                fea_bank = torch.empty(
+                    num_samples, norm_features.size(1), device=self.device
+                )
+            fea_bank[batch_idx] = norm_features
+            score_bank[batch_idx] = probs
+
+        self.feature_extractor.train(fe_was_training)
+        self.classifier.train(classifier_was_training)
+        return fea_bank, score_bank
+
+class _FALBaselineMixin:
+    def _init_freq_adapter(self, configs, hparams, device):
+        rng_state = torch.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
+        try:
+            self.freq_adapter = FrequencyAdaptationLayer_Independent(
+                seq_len=configs.sequence_len,
+                channels=configs.input_channels,
+                amp_scale=hparams["amp_scale"],
+                phase_scale=hparams["phase_scale"],
+                phase_modes=hparams.get("phase_modes"),
+            ).to(device)
+        finally:
+            torch.set_rng_state(rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state, device)
+        self.network = nn.Sequential(
+            self.freq_adapter, self.feature_extractor, self.classifier
+        )
+        self.optimizer = torch.optim.Adam(
+            [
+                {
+                    "params": list(self.feature_extractor.parameters())
+                    + list(self.classifier.parameters()),
+                    "lr": hparams["learning_rate"],
+                },
+                {
+                    "params": self.freq_adapter.parameters(),
+                    "lr": hparams["learning_rate"] * hparams.get("fal_lr_scale", 1.0),
+                },
+            ],
+            weight_decay=hparams["weight_decay"],
+        )
+
+
+class SHOT_FAL(_FALBaselineMixin, SHOT):
+    def __init__(self, backbone, configs, hparams, device):
+        super().__init__(backbone, configs, hparams, device)
+        self._init_freq_adapter(configs, hparams, device)
+
+
+class AaD_FAL(_FALBaselineMixin, AaD):
+    def __init__(self, backbone, configs, hparams, device):
+        super().__init__(backbone, configs, hparams, device)
+        self._init_freq_adapter(configs, hparams, device)
+
+
+class NRC_FAL(_FALBaselineMixin, NRC):
+    def __init__(self, backbone, configs, hparams, device):
+        super().__init__(backbone, configs, hparams, device)
+        self._init_freq_adapter(configs, hparams, device)
+
 
 class MAPU(Algorithm):
 
@@ -1666,6 +1764,190 @@ class SAFA(Algorithm):
         last_model = deepcopy(self.network.state_dict())
         return last_model, best_model
 
+
+class _SF_FPA_CSPA_Mixin(Algorithm):
+    """SF-FPA with class-conditional amplitude and circular phase prototypes."""
+
+    def pretrain(self, src_dataloader, avg_meter, logger):
+        src_only_model = super().pretrain(src_dataloader, avg_meter, logger)
+        self._build_spectral_prototypes(src_dataloader)
+        return src_only_model
+
+    @torch.no_grad()
+    def _build_spectral_prototypes(self, src_dataloader):
+        num_classes = self.configs.num_classes
+        channels = self.configs.input_channels
+        freq_len = self.configs.sequence_len // 2 + 1
+        device = self.device
+        phase_eta = self.hparams.get("spec_phase_eta", 1e-6)
+
+        amp_sum = torch.zeros(num_classes, channels, freq_len, device=device)
+        amp_sq_sum = torch.zeros_like(amp_sum)
+        phase_cos_sum = torch.zeros_like(amp_sum)
+        phase_sin_sum = torch.zeros_like(amp_sum)
+        class_count = torch.zeros(num_classes, device=device)
+        phase_count = torch.zeros_like(amp_sum)
+
+        for src_x, src_y, _ in src_dataloader:
+            src_x = src_x.float().to(device)
+            src_y = src_y.long().to(device)
+            spectrum = torch.fft.rfft(src_x, dim=-1)
+            amplitude = spectrum.abs()
+            phase = torch.angle(spectrum)
+            valid_phase = (amplitude > phase_eta).to(amplitude.dtype)
+
+            amp_sum.index_add_(0, src_y, amplitude)
+            amp_sq_sum.index_add_(0, src_y, amplitude.square())
+            phase_cos_sum.index_add_(0, src_y, valid_phase * phase.cos())
+            phase_sin_sum.index_add_(0, src_y, valid_phase * phase.sin())
+            phase_count.index_add_(0, src_y, valid_phase)
+            class_count.index_add_(0, src_y, torch.ones_like(src_y, dtype=amp_sum.dtype))
+
+        count = class_count[:, None, None].clamp_min(1.0)
+        amp_mean = amp_sum / count
+        amp_var = (amp_sq_sum / count - amp_mean.square()).clamp_min(0.0)
+        phase_u = phase_cos_sum / phase_count.clamp_min(1.0)
+        phase_v = phase_sin_sum / phase_count.clamp_min(1.0)
+        phase_mean = torch.atan2(phase_v, phase_u)
+        phase_concentration = torch.sqrt(phase_u.square() + phase_v.square())
+        phase_concentration = torch.where(phase_count > 0, phase_concentration, 0.0)
+
+        for name, value in (
+            ("source_amp_mean", amp_mean),
+            ("source_amp_var", amp_var),
+            ("source_phase_mean", phase_mean),
+            ("source_phase_concentration", phase_concentration),
+            ("source_class_valid", class_count > 0),
+        ):
+            self.freq_adapter.register_buffer(name, value, persistent=False)
+
+        missing = torch.where(class_count == 0)[0].tolist()
+        if missing:
+            logger.warning(f"No source samples for classes {missing}; their spectral prototypes are zero.")
+
+    def _spectral_alignment_losses(self, adapted_x, pseudo_label, conf_mask):
+        zero = adapted_x.new_zeros(())
+        if not torch.any(conf_mask):
+            return zero, zero
+
+        spectrum = torch.fft.rfft(adapted_x, dim=-1)
+        amplitude = spectrum.abs()
+        phase = torch.angle(spectrum)
+        labels = pseudo_label[conf_mask]
+        target_amp = amplitude[conf_mask]
+        target_phase = phase[conf_mask]
+        valid_class = self.freq_adapter.source_class_valid[labels]
+        if not torch.any(valid_class):
+            return zero, zero
+        labels = labels[valid_class]
+        target_amp = target_amp[valid_class]
+        target_phase = target_phase[valid_class]
+
+        amp_mean = self.freq_adapter.source_amp_mean[labels]
+        amp_var = self.freq_adapter.source_amp_var[labels]
+        amp_eps = self.hparams.get("spec_amp_eps", 1e-4)
+        amp_loss = ((target_amp - amp_mean).square() / (amp_var + amp_eps)).mean()
+
+        phase_start = 1
+        phase_end = min(self.freq_adapter.phase_modes, self.freq_adapter.freq_len)
+        if self.configs.sequence_len % 2 == 0 and phase_end == self.freq_adapter.freq_len:
+            phase_end -= 1
+        if phase_end <= phase_start:
+            return amp_loss, zero
+
+        phase_slice = slice(phase_start, phase_end)
+        phase_mean = self.freq_adapter.source_phase_mean[labels, :, phase_slice]
+        concentration = self.freq_adapter.source_phase_concentration[labels, :, phase_slice]
+        phase_amp = target_amp[:, :, phase_slice]
+        phase_delta = target_phase[:, :, phase_slice] - phase_mean
+        phase_weight = concentration * (
+            phase_amp > self.hparams.get("spec_phase_eta", 1e-6)
+        )
+        phase_weight = phase_weight.detach()
+        phase_loss = (
+            (phase_weight * (1.0 - torch.cos(phase_delta))).sum()
+            / (phase_weight.sum() + self.hparams.get("spec_phase_eps", 1e-8))
+        )
+        return amp_loss, phase_loss
+
+    def update(self, trg_dataloader, avg_meter, logger):
+        best_src_risk = float('inf')
+        best_model = self.network.state_dict()
+        for parameter in self.feature_extractor.parameters():
+            parameter.requires_grad = False
+        for parameter in self.classifier.parameters():
+            parameter.requires_grad = False
+
+        conf_thresh = self.hparams.get('conf_thresh', 0.7)
+        align_wt = self.hparams.get('align_wt', 1.0)
+        amp_wt = self.hparams.get('spec_amp_wt', 0.0)
+        phase_wt = self.hparams.get('spec_phase_wt', 0.0)
+
+        for epoch in range(1, self.hparams["num_epochs"] + 1):
+            correct_pseudo_labels = 0
+            total_target_samples = 0
+            for trg_x, trg_y, _ in trg_dataloader:
+                trg_x = trg_x.float().to(self.device)
+                trg_y = trg_y.long().to(self.device)
+                self.optimizer.zero_grad()
+
+                adapted_x = self.freq_adapter(trg_x)
+                trg_feat, _ = self.feature_extractor(adapted_x)
+                trg_pred = self.classifier(trg_feat)
+                trg_prob = F.softmax(trg_pred, dim=1)
+
+                with torch.no_grad():
+                    max_prob, pseudo_label = trg_prob.max(dim=1)
+                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
+                    total_target_samples += trg_y.size(0)
+                    conf_mask = max_prob >= conf_thresh
+
+                if conf_mask.any():
+                    norm_trg_feat = F.normalize(trg_feat[conf_mask], p=2, dim=1)
+                    target_proto = self.source_prototypes[pseudo_label[conf_mask]]
+                    align_loss = (1.0 - (norm_trg_feat * target_proto).sum(dim=1)).mean()
+                else:
+                    align_loss = trg_x.new_zeros(())
+
+                amp_loss, phase_loss = self._spectral_alignment_losses(
+                    adapted_x, pseudo_label, conf_mask
+                )
+                trg_ent = self.hparams['ent_loss_wt'] * EntropyLoss(trg_prob).mean()
+                trg_ent -= self.hparams['im'] * torch.sum(
+                    -trg_prob.mean(dim=0) * torch.log(trg_prob.mean(dim=0) + 1e-5)
+                )
+                loss = (
+                    trg_ent + align_wt * align_loss
+                    + amp_wt * amp_loss + phase_wt * phase_loss
+                )
+                loss.backward()
+                self.optimizer.step()
+
+                for key, value in {
+                    'entropy_loss': trg_ent.detach().item(),
+                    'align_loss': align_loss.detach().item(),
+                    'spec_amp_loss': amp_loss.detach().item(),
+                    'spec_phase_loss': phase_loss.detach().item(),
+                }.items():
+                    avg_meter[key].update(value, trg_x.size(0))
+
+            self.lr_scheduler.step()
+            if epoch == 1 and total_target_samples:
+                logger.debug(
+                    f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: '
+                    f'{100.0 * correct_pseudo_labels / total_target_samples:.2f}% <<<'
+                )
+            if (epoch + 1) % 10 == 0 and avg_meter['entropy_loss'].avg < best_src_risk:
+                best_src_risk = avg_meter['entropy_loss'].avg
+                best_model = deepcopy(self.network.state_dict())
+            logger.debug(f'[Epoch : {epoch}/{self.hparams["num_epochs"]}]')
+            for key, value in avg_meter.items():
+                logger.debug(f'{key}\t: {value.avg:2.4f}')
+            logger.debug('-------------------------------------')
+
+        return deepcopy(self.network.state_dict()), best_model
+
+
 class SF_FPA(Algorithm):
     """
     SF-FPA: Source-Free Frequency-Prototype Alignment
@@ -1680,11 +1962,13 @@ class SF_FPA(Algorithm):
         
         amp_scale = hparams.get('amp_scale', 0.2)
         phase_scale = hparams.get('phase_scale', 0.2)
+        phase_modes = hparams.get('phase_modes', getattr(configs, 'fourier_modes', None))
         self.freq_adapter = FrequencyAdaptationLayer_Independent(
             seq_len=configs.sequence_len,
             channels=configs.input_channels,
             amp_scale=amp_scale,
             phase_scale=phase_scale,
+            phase_modes=phase_modes,
         ).to(device)
         
         self.network = nn.Sequential(self.freq_adapter, self.feature_extractor, self.classifier)
@@ -1776,7 +2060,6 @@ class SF_FPA(Algorithm):
             v.requires_grad = False
         for k, v in self.classifier.named_parameters():
             v.requires_grad = False
-
         conf_thresh = self.hparams.get('conf_thresh', 0.7)  # 伪标签过滤阈值
         align_wt = self.hparams.get('align_wt', 1.0)        # 原型拉近 Loss 权重
 
@@ -1824,11 +2107,11 @@ class SF_FPA(Algorithm):
                 self.optimizer.step()
 
                 losses = {
-                    'entropy_loss': trg_ent.detach().item(), 
+                    'entropy_loss': trg_ent.detach().item(),
                     'align_loss': align_loss.detach().item()
                 }
                 for key, val in losses.items():
-                    avg_meter[key].update(val, 32)
+                    avg_meter[key].update(val, trg_x.size(0))
 
             self.lr_scheduler.step()
             if epoch == 1:
@@ -1846,3 +2129,7 @@ class SF_FPA(Algorithm):
 
         last_model = deepcopy(self.network.state_dict())
         return last_model, best_model
+
+
+class SF_FPA_CSPA(_SF_FPA_CSPA_Mixin, SF_FPA):
+    pass

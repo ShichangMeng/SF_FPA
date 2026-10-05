@@ -1,7 +1,7 @@
 import pandas as pd
 
 # 1. 加载数据
-df = pd.read_csv("exp0831/Boiler/SF_FPA/best_results.csv")
+df = pd.read_csv("/mnt/cache/mengshichang/exp_boiler_baselines_ep5_rerun2/Boiler/TemSR_ep5_3sc/best_results.csv")
 
 # 2. 过滤掉末尾非 Scenario 的统计汇总行（mean 和 std）
 df_clean = df[~df["scenario"].isin(["mean", "std"])].copy()

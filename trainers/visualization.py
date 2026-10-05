@@ -40,6 +40,7 @@ def plot_umap_before_after(
     trg_dataloader,
     save_path="umap_comparison.png",
     num_classes=6,
+    class_names=None,
 ):
   """绘制符合论文高顶刊出版标准的 UMAP 对比图"""
   print(">>> Extracting features for UMAP visualization... <<<")
@@ -47,6 +48,14 @@ def plot_umap_before_after(
       algorithm, src_only_model, trg_dataloader
   )
   feat_post, _ = extract_features(algorithm, adapted_model, trg_dataloader)
+
+  if class_names is None:
+    class_names = [str(i) for i in range(num_classes)]
+  if len(class_names) != num_classes:
+    raise ValueError(
+        f"Expected {num_classes} class names, got {len(class_names)}"
+    )
+  label_names = np.asarray(class_names)[labels]
 
   print(">>> Computing UMAP embeddings... <<<")
   reducer_pre = umap.UMAP(
@@ -66,14 +75,15 @@ def plot_umap_before_after(
 
   # 1. 构建字典映射颜色板，彻底解决 Seaborn 颜色数量不匹配报错
   raw_colors = sns.color_palette("tab10", num_classes)
-  palette_dict = {int(c): raw_colors[i] for i, c in enumerate(range(num_classes))}
+  palette_dict = {name: raw_colors[i] for i, name in enumerate(class_names)}
 
   # 2. 绘制自适应前 (Before Adaptation)
   sns.scatterplot(
       x=emb_pre[:, 0],
       y=emb_pre[:, 1],
-      hue=labels,
+      hue=label_names,
       palette=palette_dict,
+      hue_order=class_names,
       ax=axes[0],
       s=45,
       alpha=0.85,
@@ -92,8 +102,9 @@ def plot_umap_before_after(
   sns.scatterplot(
       x=emb_post[:, 0],
       y=emb_post[:, 1],
-      hue=labels,
+      hue=label_names,
       palette=palette_dict,
+      hue_order=class_names,
       ax=axes[1],
       s=45,
       alpha=0.85,

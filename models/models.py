@@ -282,13 +282,16 @@ class ChannelIndependentLinear(nn.Module):
 class FrequencyAdaptationLayer_Independent(nn.Module):
     """
     频域自适应层 (Channel-Independent 完全独立修复版)
+    Phase 分支使用 sin/cos 环形表示，并只在低频 phase_modes 内学习扰动。
     """
-    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, hidden_dim=64):
+    def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, phase_modes=None, hidden_dim=64):
         super(FrequencyAdaptationLayer_Independent, self).__init__()
         
         self.freq_len = seq_len // 2 + 1
         self.amp_scale = amp_scale
         self.phase_scale = phase_scale
+        self.phase_modes = min(phase_modes or self.freq_len, self.freq_len)
+        self._last_delta_phase = None
         
         # 幅值调节 MLP (通道独立)
         self.amp_mlp = nn.Sequential(
@@ -298,11 +301,11 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
             nn.Tanh()
         )
         
-        # 相位调节 MLP (通道独立，修复原代码误用普通 Linear 的问题)
+        # 相位用 sin/cos 环形表示，仅在低频窗口内学习扰动，避免 angle 的 -pi/pi 跳变。
         self.phase_mlp = nn.Sequential(
-            ChannelIndependentLinear(channels, self.freq_len, hidden_dim),
+            ChannelIndependentLinear(channels, self.phase_modes * 2, hidden_dim),
             nn.ReLU(),
-            ChannelIndependentLinear(channels, hidden_dim, self.freq_len),
+            ChannelIndependentLinear(channels, hidden_dim, self.phase_modes),
             nn.Tanh()
         )
 
@@ -318,8 +321,14 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
         amp = torch.abs(fft_x)
         phase = torch.angle(fft_x)
         
-        delta_amp = self.amp_mlp(amp) * self.amp_scale  
-        delta_phase = self.phase_mlp(phase) * self.phase_scale * math.pi
+        delta_amp = self.amp_mlp(amp) * self.amp_scale
+
+        phase_low = phase[..., :self.phase_modes]
+        phase_features = torch.cat((torch.sin(phase_low), torch.cos(phase_low)), dim=-1)
+        delta_phase_low = self.phase_mlp(phase_features) * self.phase_scale * math.pi
+        delta_phase = torch.zeros_like(phase)
+        delta_phase[..., :self.phase_modes] = delta_phase_low
+        self._last_delta_phase = delta_phase.detach()
         
         # 幅值乘法，相位加法
         new_amp = amp * (1.0 + delta_amp)

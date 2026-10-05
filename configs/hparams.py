@@ -22,7 +22,7 @@ class FD():
             'NRC': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'epsilon': 1e-5},
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,  'TOV_wt': 0.169},
             'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305,  'TOV_wt': 0.169, 'amp_scale': 0.23958, 'phase_scale': 0.18379,},
-            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305, 'align_wt': 0.037414, 'amp_scale': 0.23958, 'phase_scale': 0.18379, 'conf_thresh': 0.77752},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094, 'im': 0.98305, 'align_wt': 0.037414, 'amp_scale': 0.23958, 'phase_scale': 0.18379, 'phase_modes': 64, 'conf_thresh': 0.77752},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.00001, 'ent_loss_wt': 0.91094,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
@@ -52,7 +52,7 @@ class WISDM():
             'MAPU': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5},
             'SFTSDA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5},
             'SAFA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907,  'TOV_wt': 0.5, 'amp_scale': 0.59687, 'phase_scale': 0.57247,},
-            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907, 'align_wt': 1.07693, 'amp_scale': 0.59687, 'phase_scale': 0.57247, 'conf_thresh': 0.90212},
+            'SF_FPA': {'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939, 'im': 0.10907, 'align_wt': 1.07693, 'amp_scale': 0.59687, 'phase_scale': 0.57247, 'phase_modes': 64, 'conf_thresh': 0.90212},
             'TemSR': {
                      'pre_learning_rate': 0.001, 'learning_rate': 0.001, 'ent_loss_wt': 0.41939,
                      'disc_loss_wt': 50, 'src_like_entropy_wt': 3.45814, 'Gent': False, 'src_like_epochs': 3,
@@ -67,7 +67,7 @@ class Boiler():
     def __init__(self):
         super(Boiler, self).__init__()
         self.train_params = {
-                'num_epochs': 30,
+                'num_epochs': 5,
                 'batch_size': 32,
                 'weight_decay': 1e-4,
                 'step_size': 50,

@@ -87,7 +87,7 @@ class TargetTest(AbstractTrainer):
         summary_last = last_results[results_columns[2:]].mean()
         summary_best = best_results[results_columns[2:]].mean()
         for summary_name, summary in [('src_only', summary_src_only), ('Last', summary_last), ('Best', summary_best)]:
-            for key, val in summary.iteritems():
+            for key, val in summary.items():
                 print(f'{summary_name}: {key}\t: {val:2.4f}')
 
         # Add mean and std tables to results tables and save to file
