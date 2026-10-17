@@ -4,26 +4,23 @@ import torch
 import torch.nn.functional as F
 from torchmetrics import Accuracy, AUROC, F1Score
 import os
-import wandb
 import pandas as pd
-import numpy as np
 import warnings
 import sklearn.exceptions
-import collections
 import time
-from dataloader.dataloader import data_generator, data_generator_aug
+from pathlib import Path
+from copy import deepcopy
+from dataloader.dataloader import data_generator
 from configs.data_model_configs import get_dataset_class
 from configs.hparams import get_hparams_class
 from algorithms.algorithms import get_algorithm_class
-from models.models import get_backbone_class
+from models.models import get_backbone_class, FrequencyAdaptationLayer_Independent
 from torch import nn
 
 warnings.filterwarnings("ignore", category=sklearn.exceptions.UndefinedMetricWarning)
 
 class AbstractTrainer(object):
-    """
-   This class contain the main training functions for our AdAtime
-    """
+    """Shared configuration, training, evaluation, and result utilities."""
 
     def __init__(self, args):
         self.da_method = args.da_method  # Selected  DA Method
@@ -46,6 +43,11 @@ class AbstractTrainer(object):
 
         # Specify runs
         self.num_runs = args.num_runs
+        self.source_checkpoint_root = getattr(args, "source_checkpoint_root", None)
+        self.add_fal = getattr(args, "add_fal", False)
+        self.current_source_id = None
+        self.current_target_id = None
+        self.current_run_id = None
 
         # get dataset and base model configs
         self.dataset_configs, self.hparams_class = self.get_configs()
@@ -64,10 +66,6 @@ class AbstractTrainer(object):
         self.AUROC = AUROC(task="multiclass", num_classes=self.num_classes)        
 
 
-    def sweep(self):
-        # sweep configurations
-        pass
-    
     def train_model(self):
         # Get the algorithm and the backbone network
         algorithm_class = get_algorithm_class(self.da_method)
@@ -77,13 +75,32 @@ class AbstractTrainer(object):
         self.algorithm = algorithm_class(backbone_fe, self.dataset_configs, self.hparams, self.device)
         self.algorithm.to(self.device)
 
-        # pretraining step
-        self.logger.debug(f'Pretraining stage..........')
-        self.logger.debug("=" * 45)
-        pretrain_start_time = time.time()
-        self.non_adapted_model = self.algorithm.pretrain(self.src_train_dl, self.pre_loss_avg_meters, self.logger)
-        pretrain_duration = time.time() - pretrain_start_time
-        self.logger.debug(f'Pretraining stage finished in {pretrain_duration:.2f} seconds.')
+        if self.source_checkpoint_root:
+            checkpoint_path = Path(self.source_checkpoint_root) / (
+                f"{self.current_source_id}_to_{self.current_target_id}_run_{self.current_run_id}"
+            ) / "checkpoint.pt"
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            self.algorithm.network.load_state_dict(checkpoint["non_adapted"], strict=True)
+            self.non_adapted_model = checkpoint["non_adapted"]
+
+            if self.add_fal:
+                self.attach_fal(self.algorithm, freeze_encoder=True)
+                trainable = [p for p in self.algorithm.parameters() if p.requires_grad]
+                self.algorithm.optimizer = torch.optim.Adam(
+                    trainable,
+                    lr=self.hparams["learning_rate"],
+                    weight_decay=self.hparams["weight_decay"],
+                )
+                self.non_adapted_model = deepcopy(self.algorithm.network.state_dict())
+            self.logger.debug(f'Loaded source checkpoint: {checkpoint_path}')
+        else:
+            # pretraining step
+            self.logger.debug(f'Pretraining stage..........')
+            self.logger.debug("=" * 45)
+            pretrain_start_time = time.time()
+            self.non_adapted_model = self.algorithm.pretrain(self.src_train_dl, self.pre_loss_avg_meters, self.logger)
+            pretrain_duration = time.time() - pretrain_start_time
+            self.logger.debug(f'Pretraining stage finished in {pretrain_duration:.2f} seconds.')
         # adapting step
         self.logger.debug("=" * 45)
         self.logger.debug(f'Adaptation stage..........')
@@ -93,7 +110,26 @@ class AbstractTrainer(object):
         adapt_duration = time.time() - adapt_start_time
         self.logger.debug(f'Adaptation stage finished in {adapt_duration:.2f} seconds.')
         return  self.non_adapted_model,  self.last_model, self.best_model
-    
+
+    def attach_fal(self, algorithm, freeze_encoder=False):
+        fal_hp = self.hparams_class.alg_hparams["SF_FPA"]
+        algorithm.freq_adapter = FrequencyAdaptationLayer_Independent(
+            seq_len=self.dataset_configs.sequence_len,
+            channels=self.dataset_configs.input_channels,
+            amp_scale=fal_hp["amp_scale"],
+            phase_scale=fal_hp["phase_scale"],
+            phase_modes=fal_hp.get("phase_modes"),
+        ).to(self.device)
+        if freeze_encoder:
+            for parameter in algorithm.feature_extractor.parameters():
+                parameter.requires_grad = False
+        algorithm.network = nn.Sequential(
+            algorithm.freq_adapter,
+            algorithm.feature_extractor,
+            algorithm.classifier,
+        )
+        return algorithm
+
     def evaluate(self, test_loader):
         feature_extractor = self.algorithm.feature_extractor.to(self.device)
         classifier = self.algorithm.classifier.to(self.device)
@@ -139,10 +175,6 @@ class AbstractTrainer(object):
         self.trg_train_dl = data_generator(self.data_path, trg_id, self.dataset_configs, self.hparams, "train")
         self.trg_test_dl = data_generator(self.data_path, trg_id, self.dataset_configs, self.hparams, "test")
 
-    def create_save_dir(self, save_dir):
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-
     def calculate_metrics_risks(self):
         # calculation based source test data
         self.evaluate(self.src_test_dl)
@@ -176,47 +208,6 @@ class AbstractTrainer(object):
         # save classification report
         save_path = os.path.join(home_path, log_dir, f"checkpoint.pt")
         torch.save(save_dict, save_path)
-
-    def calculate_avg_std_wandb_table(self, results):
-
-        avg_metrics = [np.mean(results.get_column(metric)) for metric in results.columns[2:]]
-        std_metrics = [np.std(results.get_column(metric)) for metric in results.columns[2:]]
-        summary_metrics = {metric: np.mean(results.get_column(metric)) for metric in results.columns[2:]}
-
-        results.add_data('mean', '-', *avg_metrics)
-        results.add_data('std', '-', *std_metrics)
-
-        return results, summary_metrics
-
-    def log_summary_metrics_wandb(self, results, risks):
-       
-        # Calculate average and standard deviation for metrics
-        avg_metrics = [np.mean(results.get_column(metric)) for metric in results.columns[2:]]
-        std_metrics = [np.std(results.get_column(metric)) for metric in results.columns[2:]]
-
-        avg_risks = [np.mean(risks.get_column(risk)) for risk in risks.columns[2:]]
-        std_risks = [np.std(risks.get_column(risk)) for risk in risks.columns[2:]]
-
-        # Estimate summary metrics
-        summary_metrics = {metric: np.mean(results.get_column(metric)) for metric in results.columns[2:]}
-        summary_risks = {risk: np.mean(risks.get_column(risk)) for risk in risks.columns[2:]}
-
-
-        # append avg and std values to metrics
-        results.add_data('mean', '-', *avg_metrics)
-        results.add_data('std', '-', *std_metrics)
-
-        # append avg and std values to risks 
-        results.add_data('mean', '-', *avg_risks)
-        risks.add_data('std', '-', *std_risks)
-
-    def wandb_logging(self, total_results, total_risks, summary_metrics, summary_risks):
-        # log wandb
-        wandb.log({'results': total_results})
-        wandb.log({'risks': total_risks})
-        wandb.log({'hparams': wandb.Table(dataframe=pd.DataFrame(dict(self.hparams).items(), columns=['parameter', 'value']), allow_mixed_types=True)})
-        wandb.log(summary_metrics)
-        wandb.log(summary_risks)
 
     def calculate_metrics(self):
        
@@ -271,4 +262,4 @@ class AbstractTrainer(object):
         # Apply the formatting function to each element in the tables
         table = table.applymap(format_func)
 
-        return table 
+        return table

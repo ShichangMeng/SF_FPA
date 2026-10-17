@@ -1,35 +1,28 @@
 import sys
 
-sys.path.append('./')
+sys.path.append("./")
 
 import torch
 import torch.nn.functional as F
 import os
-import wandb
 import pandas as pd
-import numpy as np
 import warnings
 import sklearn.exceptions
-import collections
 import argparse
-import warnings
-import sklearn.exceptions
 import torch.nn as nn
-import time
 
 from utils import fix_randomness, starting_logs, AverageMeter
 from algorithms.algorithms import get_algorithm_class
 from models.models import get_backbone_class
 from abstract_trainer import AbstractTrainer
+from dataloader.dataloader import data_generator
 
 warnings.filterwarnings("ignore", category=sklearn.exceptions.UndefinedMetricWarning)
 parser = argparse.ArgumentParser()
 
 
 class TargetTest(AbstractTrainer):
-    """
-   This class contain the main training functions for our AdAtime
-    """
+    """Evaluate source-only, last-adapted, and best-adapted checkpoints."""
 
     def __init__(self, args):
         super(TargetTest, self).__init__(args)
@@ -51,7 +44,10 @@ class TargetTest(AbstractTrainer):
         algorithm_class = get_algorithm_class(self.da_method)
         backbone_fe = get_backbone_class(self.backbone)
 
-        return algorithm_class(backbone_fe, self.dataset_configs, self.hparams, self.device).to(self.device)
+        algorithm = algorithm_class(backbone_fe, self.dataset_configs, self.hparams, self.device).to(self.device)
+        if self.add_fal:
+            self.attach_fal(algorithm, freeze_encoder=True)
+        return algorithm
 
     def scenario_test(self):
         # Define columns for results tables
@@ -61,6 +57,7 @@ class TargetTest(AbstractTrainer):
         last_results = pd.DataFrame(columns=results_columns)
         best_results = pd.DataFrame(columns=results_columns)
         non_adapted_results = pd.DataFrame(columns=results_columns)
+        target_test_loaders = {}
 
         # Train and test models for each scenario and run
         for src_id, trg_id in self.dataset_configs.scenarios:
@@ -69,8 +66,15 @@ class TargetTest(AbstractTrainer):
                 fix_randomness(run_id)
                 self.scenario_log_dir = os.path.join(self.exp_log_dir, src_id + "_to_" + trg_id + "_run_" + str(run_id))
 
-                # Load data, build model, and load checkpoint
-                self.load_data(src_id, trg_id)
+                # Reuse each target test split instead of reloading and renormalizing it per run.
+                if trg_id not in target_test_loaders:
+                    target_test_loaders[trg_id] = data_generator(
+                        self.data_path, trg_id, self.dataset_configs,
+                        self.hparams, "test"
+                    )
+                self.trg_test_dl = target_test_loaders[trg_id]
+
+                # Build model and load checkpoint
                 self.algorithm = self.build_model()
                 non_adapted_last, adapted_last, adapted_best = self.load_checkpoint(self.scenario_log_dir)
 
@@ -157,6 +161,9 @@ if __name__ == "__main__":
     # ========= Experiment settings ===============
     parser.add_argument('--num_runs', default=3, type=int, help='Number of consecutive run with different seeds')
     parser.add_argument('--device', default="cuda", type=str, help='cpu or cuda')
+    parser.add_argument('--source_checkpoint_root', default=None, type=str)
+    parser.add_argument('--add_fal', action='store_true',
+                        help='Build the FAL-augmented model architecture when testing a run trained with --add_fal')
 
     args = parser.parse_args()
 

@@ -458,9 +458,9 @@ class NRC(Algorithm):
                 features, _ = self.target_features(trg_x)
                 predictions = self.classifier(features)
                 with torch.no_grad():
-                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    # Use the highest-probability class as the pseudo-label.
                     pseudo_label = torch.argmax(predictions, dim=1)
-                    # 统计预测正确的数量
+                    # Track pseudo-label accuracy for diagnostics.
                     correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
                     total_target_samples += trg_y.size(0)
                 softmax_out = nn.Softmax(dim=1)(predictions)
@@ -542,7 +542,6 @@ class NRC(Algorithm):
             if epoch == 1:
                 pseudo_label_acc = correct_pseudo_labels / total_target_samples
                 logger.debug(f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: {pseudo_label_acc * 100:.2f}% <<<')
-                # 如果你也想记录在字典里可以加：avg_meter['Pseudo_Acc_Epoch1'].update(pseudo_label_acc, 1)
 
             # saving the best model based on src risk
             if (epoch + 1) % 10 == 0 and avg_meter['Src_cls_loss'].avg < best_src_risk:
@@ -584,59 +583,6 @@ class NRC(Algorithm):
         self.feature_extractor.train(fe_was_training)
         self.classifier.train(classifier_was_training)
         return fea_bank, score_bank
-
-class _FALBaselineMixin:
-    def _init_freq_adapter(self, configs, hparams, device):
-        rng_state = torch.get_rng_state()
-        cuda_rng_state = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
-        try:
-            self.freq_adapter = FrequencyAdaptationLayer_Independent(
-                seq_len=configs.sequence_len,
-                channels=configs.input_channels,
-                amp_scale=hparams["amp_scale"],
-                phase_scale=hparams["phase_scale"],
-                phase_modes=hparams.get("phase_modes"),
-            ).to(device)
-        finally:
-            torch.set_rng_state(rng_state)
-            if cuda_rng_state is not None:
-                torch.cuda.set_rng_state(cuda_rng_state, device)
-        self.network = nn.Sequential(
-            self.freq_adapter, self.feature_extractor, self.classifier
-        )
-        self.optimizer = torch.optim.Adam(
-            [
-                {
-                    "params": list(self.feature_extractor.parameters())
-                    + list(self.classifier.parameters()),
-                    "lr": hparams["learning_rate"],
-                },
-                {
-                    "params": self.freq_adapter.parameters(),
-                    "lr": hparams["learning_rate"] * hparams.get("fal_lr_scale", 1.0),
-                },
-            ],
-            weight_decay=hparams["weight_decay"],
-        )
-
-
-class SHOT_FAL(_FALBaselineMixin, SHOT):
-    def __init__(self, backbone, configs, hparams, device):
-        super().__init__(backbone, configs, hparams, device)
-        self._init_freq_adapter(configs, hparams, device)
-
-
-class AaD_FAL(_FALBaselineMixin, AaD):
-    def __init__(self, backbone, configs, hparams, device):
-        super().__init__(backbone, configs, hparams, device)
-        self._init_freq_adapter(configs, hparams, device)
-
-
-class NRC_FAL(_FALBaselineMixin, NRC):
-    def __init__(self, backbone, configs, hparams, device):
-        super().__init__(backbone, configs, hparams, device)
-        self._init_freq_adapter(configs, hparams, device)
-
 
 class MAPU(Algorithm):
 
@@ -1378,9 +1324,9 @@ class TPDS(Algorithm):
         assert (x_tf_out.size(0) == bn_ and x_tf_out.size(1) == k_)
         su_temp1 = x_out.unsqueeze(2)
         su_temp2 = x_tf_out.unsqueeze(1)
-        p_i_j = x_out.unsqueeze(2) * x_tf_out.unsqueeze(1)  # bn, k, k #这两个相乘有什么用？
+        p_i_j = x_out.unsqueeze(2) * x_tf_out.unsqueeze(1)  # Batch-wise joint class probabilities.
         p_i_j = p_i_j.sum(dim=0)  # k, k
-        p_i_j = (p_i_j + p_i_j.t()) / 2.  # symmetrise 为什么要对称
+        p_i_j = (p_i_j + p_i_j.t()) / 2.  # Symmetrize the joint distribution.
         p_i_j = p_i_j / p_i_j.sum()  # normalise
         assert (p_i_j.size() == (k, k))
 
@@ -1515,9 +1461,9 @@ class CESFDA(Algorithm):
                 trg_feat, _ = self.feature_extractor(trg_x)
                 trg_pred = self.classifier(trg_feat)#shot logits
                 with torch.no_grad():
-                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    # Use the highest-probability class as the pseudo-label.
                     pseudo_label = torch.argmax(trg_pred, dim=1)
-                    # 统计预测正确的数量
+                    # Track pseudo-label accuracy for diagnostics.
                     correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
                     total_target_samples += trg_y.size(0)
                 trg_pred_aad = self.classifier_aad(trg_feat)#AaD logits
@@ -1720,9 +1666,9 @@ class SAFA(Algorithm):
                 # prediction scores
                 trg_pred = self.classifier(trg_feat)
                 with torch.no_grad():
-                    # 获取预测的伪标签 (取 logits 最大值对应的索引)
+                    # Use the highest-probability class as the pseudo-label.
                     pseudo_label = torch.argmax(trg_pred, dim=1)
-                    # 统计预测正确的数量
+                    # Track pseudo-label accuracy for diagnostics.
                     correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
                     total_target_samples += trg_y.size(0)
                 # select evidential vs softmax probabilities
@@ -1765,193 +1711,10 @@ class SAFA(Algorithm):
         return last_model, best_model
 
 
-class _SF_FPA_CSPA_Mixin(Algorithm):
-    """SF-FPA with class-conditional amplitude and circular phase prototypes."""
-
-    def pretrain(self, src_dataloader, avg_meter, logger):
-        src_only_model = super().pretrain(src_dataloader, avg_meter, logger)
-        self._build_spectral_prototypes(src_dataloader)
-        return src_only_model
-
-    @torch.no_grad()
-    def _build_spectral_prototypes(self, src_dataloader):
-        num_classes = self.configs.num_classes
-        channels = self.configs.input_channels
-        freq_len = self.configs.sequence_len // 2 + 1
-        device = self.device
-        phase_eta = self.hparams.get("spec_phase_eta", 1e-6)
-
-        amp_sum = torch.zeros(num_classes, channels, freq_len, device=device)
-        amp_sq_sum = torch.zeros_like(amp_sum)
-        phase_cos_sum = torch.zeros_like(amp_sum)
-        phase_sin_sum = torch.zeros_like(amp_sum)
-        class_count = torch.zeros(num_classes, device=device)
-        phase_count = torch.zeros_like(amp_sum)
-
-        for src_x, src_y, _ in src_dataloader:
-            src_x = src_x.float().to(device)
-            src_y = src_y.long().to(device)
-            spectrum = torch.fft.rfft(src_x, dim=-1)
-            amplitude = spectrum.abs()
-            phase = torch.angle(spectrum)
-            valid_phase = (amplitude > phase_eta).to(amplitude.dtype)
-
-            amp_sum.index_add_(0, src_y, amplitude)
-            amp_sq_sum.index_add_(0, src_y, amplitude.square())
-            phase_cos_sum.index_add_(0, src_y, valid_phase * phase.cos())
-            phase_sin_sum.index_add_(0, src_y, valid_phase * phase.sin())
-            phase_count.index_add_(0, src_y, valid_phase)
-            class_count.index_add_(0, src_y, torch.ones_like(src_y, dtype=amp_sum.dtype))
-
-        count = class_count[:, None, None].clamp_min(1.0)
-        amp_mean = amp_sum / count
-        amp_var = (amp_sq_sum / count - amp_mean.square()).clamp_min(0.0)
-        phase_u = phase_cos_sum / phase_count.clamp_min(1.0)
-        phase_v = phase_sin_sum / phase_count.clamp_min(1.0)
-        phase_mean = torch.atan2(phase_v, phase_u)
-        phase_concentration = torch.sqrt(phase_u.square() + phase_v.square())
-        phase_concentration = torch.where(phase_count > 0, phase_concentration, 0.0)
-
-        for name, value in (
-            ("source_amp_mean", amp_mean),
-            ("source_amp_var", amp_var),
-            ("source_phase_mean", phase_mean),
-            ("source_phase_concentration", phase_concentration),
-            ("source_class_valid", class_count > 0),
-        ):
-            self.freq_adapter.register_buffer(name, value, persistent=False)
-
-        missing = torch.where(class_count == 0)[0].tolist()
-        if missing:
-            logger.warning(f"No source samples for classes {missing}; their spectral prototypes are zero.")
-
-    def _spectral_alignment_losses(self, adapted_x, pseudo_label, conf_mask):
-        zero = adapted_x.new_zeros(())
-        if not torch.any(conf_mask):
-            return zero, zero
-
-        spectrum = torch.fft.rfft(adapted_x, dim=-1)
-        amplitude = spectrum.abs()
-        phase = torch.angle(spectrum)
-        labels = pseudo_label[conf_mask]
-        target_amp = amplitude[conf_mask]
-        target_phase = phase[conf_mask]
-        valid_class = self.freq_adapter.source_class_valid[labels]
-        if not torch.any(valid_class):
-            return zero, zero
-        labels = labels[valid_class]
-        target_amp = target_amp[valid_class]
-        target_phase = target_phase[valid_class]
-
-        amp_mean = self.freq_adapter.source_amp_mean[labels]
-        amp_var = self.freq_adapter.source_amp_var[labels]
-        amp_eps = self.hparams.get("spec_amp_eps", 1e-4)
-        amp_loss = ((target_amp - amp_mean).square() / (amp_var + amp_eps)).mean()
-
-        phase_start = 1
-        phase_end = min(self.freq_adapter.phase_modes, self.freq_adapter.freq_len)
-        if self.configs.sequence_len % 2 == 0 and phase_end == self.freq_adapter.freq_len:
-            phase_end -= 1
-        if phase_end <= phase_start:
-            return amp_loss, zero
-
-        phase_slice = slice(phase_start, phase_end)
-        phase_mean = self.freq_adapter.source_phase_mean[labels, :, phase_slice]
-        concentration = self.freq_adapter.source_phase_concentration[labels, :, phase_slice]
-        phase_amp = target_amp[:, :, phase_slice]
-        phase_delta = target_phase[:, :, phase_slice] - phase_mean
-        phase_weight = concentration * (
-            phase_amp > self.hparams.get("spec_phase_eta", 1e-6)
-        )
-        phase_weight = phase_weight.detach()
-        phase_loss = (
-            (phase_weight * (1.0 - torch.cos(phase_delta))).sum()
-            / (phase_weight.sum() + self.hparams.get("spec_phase_eps", 1e-8))
-        )
-        return amp_loss, phase_loss
-
-    def update(self, trg_dataloader, avg_meter, logger):
-        best_src_risk = float('inf')
-        best_model = self.network.state_dict()
-        for parameter in self.feature_extractor.parameters():
-            parameter.requires_grad = False
-        for parameter in self.classifier.parameters():
-            parameter.requires_grad = False
-
-        conf_thresh = self.hparams.get('conf_thresh', 0.7)
-        align_wt = self.hparams.get('align_wt', 1.0)
-        amp_wt = self.hparams.get('spec_amp_wt', 0.0)
-        phase_wt = self.hparams.get('spec_phase_wt', 0.0)
-
-        for epoch in range(1, self.hparams["num_epochs"] + 1):
-            correct_pseudo_labels = 0
-            total_target_samples = 0
-            for trg_x, trg_y, _ in trg_dataloader:
-                trg_x = trg_x.float().to(self.device)
-                trg_y = trg_y.long().to(self.device)
-                self.optimizer.zero_grad()
-
-                adapted_x = self.freq_adapter(trg_x)
-                trg_feat, _ = self.feature_extractor(adapted_x)
-                trg_pred = self.classifier(trg_feat)
-                trg_prob = F.softmax(trg_pred, dim=1)
-
-                with torch.no_grad():
-                    max_prob, pseudo_label = trg_prob.max(dim=1)
-                    correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
-                    total_target_samples += trg_y.size(0)
-                    conf_mask = max_prob >= conf_thresh
-
-                if conf_mask.any():
-                    norm_trg_feat = F.normalize(trg_feat[conf_mask], p=2, dim=1)
-                    target_proto = self.source_prototypes[pseudo_label[conf_mask]]
-                    align_loss = (1.0 - (norm_trg_feat * target_proto).sum(dim=1)).mean()
-                else:
-                    align_loss = trg_x.new_zeros(())
-
-                amp_loss, phase_loss = self._spectral_alignment_losses(
-                    adapted_x, pseudo_label, conf_mask
-                )
-                trg_ent = self.hparams['ent_loss_wt'] * EntropyLoss(trg_prob).mean()
-                trg_ent -= self.hparams['im'] * torch.sum(
-                    -trg_prob.mean(dim=0) * torch.log(trg_prob.mean(dim=0) + 1e-5)
-                )
-                loss = (
-                    trg_ent + align_wt * align_loss
-                    + amp_wt * amp_loss + phase_wt * phase_loss
-                )
-                loss.backward()
-                self.optimizer.step()
-
-                for key, value in {
-                    'entropy_loss': trg_ent.detach().item(),
-                    'align_loss': align_loss.detach().item(),
-                    'spec_amp_loss': amp_loss.detach().item(),
-                    'spec_phase_loss': phase_loss.detach().item(),
-                }.items():
-                    avg_meter[key].update(value, trg_x.size(0))
-
-            self.lr_scheduler.step()
-            if epoch == 1 and total_target_samples:
-                logger.debug(
-                    f'>>> [Analysis] Epoch 1 Pseudo-label Accuracy: '
-                    f'{100.0 * correct_pseudo_labels / total_target_samples:.2f}% <<<'
-                )
-            if (epoch + 1) % 10 == 0 and avg_meter['entropy_loss'].avg < best_src_risk:
-                best_src_risk = avg_meter['entropy_loss'].avg
-                best_model = deepcopy(self.network.state_dict())
-            logger.debug(f'[Epoch : {epoch}/{self.hparams["num_epochs"]}]')
-            for key, value in avg_meter.items():
-                logger.debug(f'{key}\t: {value.avg:2.4f}')
-            logger.debug('-------------------------------------')
-
-        return deepcopy(self.network.state_dict()), best_model
-
-
 class SF_FPA(Algorithm):
     """
     SF-FPA: Source-Free Frequency-Prototype Alignment
-    基于频域自适应与源域类原型拉近的无源域适应算法
+    Source-free adaptation with spectral input transformation and prototype alignment.
     """
 
     def __init__(self, backbone, configs, hparams, device):
@@ -1992,13 +1755,13 @@ class SF_FPA(Algorithm):
         # Losses
         self.cross_entropy = CrossEntropyLabelSmooth(self.configs.num_classes, device, epsilon=0.1)
 
-        # 源域特征原型保存变量
+        # Stores normalized source-domain class prototypes.
         self.source_prototypes = None
 
 
     def pretrain(self, src_dataloader, avg_meter, logger):
 
-        # 1. 正常源域监督训练
+        # Train the source predictor with labeled source data.
         for epoch in range(1, self.hparams["num_epochs"] + 1):
             for step, (src_x, src_y, _) in enumerate(src_dataloader):
                 src_x, src_y = src_x.float().to(self.device), src_y.long().to(self.device)
@@ -2021,7 +1784,7 @@ class SF_FPA(Algorithm):
                 logger.debug(f'{key}\t: {val.avg:2.4f}')
             logger.debug(f'-------------------------------------')
 
-        # 2. 统计并计算 Source 各类别的特征原型（Prototypes）
+        # Compute one source feature prototype per class.
         logger.debug(">>> Calculating Source Class Prototypes... <<<")
         self.feature_extractor.eval()
         proto_sums = None
@@ -2042,7 +1805,7 @@ class SF_FPA(Algorithm):
                         proto_sums[c] += src_feat[mask].sum(dim=0)
                         proto_counts[c] += mask.sum()
 
-        # 计算特征均值并进行 L2 归一化
+        # Average and L2-normalize the class features.
         self.source_prototypes = proto_sums / proto_counts.unsqueeze(1).clamp(min=1)
         self.source_prototypes = F.normalize(self.source_prototypes, p=2, dim=1)
         self.feature_extractor.train()
@@ -2055,13 +1818,13 @@ class SF_FPA(Algorithm):
         best_src_risk = float('inf')
         best_model = self.network.state_dict()
 
-        # 冻结特征提取器和分类器，仅训练 freq_adapter
+        # Freeze the encoder and classifier; adapt only the frequency layer.
         for k, v in self.feature_extractor.named_parameters():
             v.requires_grad = False
         for k, v in self.classifier.named_parameters():
             v.requires_grad = False
-        conf_thresh = self.hparams.get('conf_thresh', 0.7)  # 伪标签过滤阈值
-        align_wt = self.hparams.get('align_wt', 1.0)        # 原型拉近 Loss 权重
+        conf_thresh = self.hparams.get('conf_thresh', 0.7)  # Pseudo-label confidence threshold.
+        align_wt = self.hparams.get('align_wt', 1.0)        # Prototype alignment weight.
 
         for epoch in range(1, self.hparams["num_epochs"] + 1):
             correct_pseudo_labels = 0
@@ -2072,11 +1835,11 @@ class SF_FPA(Algorithm):
                 trg_y = trg_y.long().to(self.device)
                 self.optimizer.zero_grad()
 
-                # Target 数据通过频域自适应层后进入特征提取器
+                # Transform the target signal before feature extraction.
                 trg_x_adapted = self.freq_adapter(trg_x)
                 trg_feat, _ = self.feature_extractor(trg_x_adapted)
 
-                # 计算概率预测
+                # Compute target class probabilities.
                 trg_pred = self.classifier(trg_feat)
                 trg_prob = F.softmax(trg_pred, dim=1)
 
@@ -2085,7 +1848,7 @@ class SF_FPA(Algorithm):
                     correct_pseudo_labels += (pseudo_label == trg_y).sum().item()
                     total_target_samples += trg_y.size(0)
 
-                # 原型特征拉近损失 (Prototype Alignment Loss)
+                # Align confident target features with their source prototypes.
                 conf_mask = max_prob >= conf_thresh
 
                 if conf_mask.sum() > 0:
@@ -2095,12 +1858,12 @@ class SF_FPA(Algorithm):
                 else:
                     align_loss = torch.tensor(0.0, device=self.device)
 
-                # Entropy loss & IM loss
+                # Combine prediction entropy and information maximization.
                 trg_ent = self.hparams['ent_loss_wt'] * torch.mean(EntropyLoss(trg_prob)) 
                 trg_ent -= self.hparams['im'] * torch.sum(
                     -trg_prob.mean(dim=0) * torch.log(trg_prob.mean(dim=0) + 1e-5))
                 
-                # 组合总 Loss
+                # Combine the target objective and prototype alignment.
                 loss = trg_ent + align_wt * align_loss
 
                 loss.backward()
@@ -2129,7 +1892,3 @@ class SF_FPA(Algorithm):
 
         last_model = deepcopy(self.network.state_dict())
         return last_model, best_model
-
-
-class SF_FPA_CSPA(_SF_FPA_CSPA_Mixin, SF_FPA):
-    pass

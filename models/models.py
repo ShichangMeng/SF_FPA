@@ -208,7 +208,7 @@ class tf_decoder(nn.Module):
     
 class FrequencyAdaptationLayer(nn.Module):
     """
-    频域自适应层 (Channel-Shared 修复版)
+    Channel-shared frequency adaptation layer.
     """
     def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, hidden_dim=64):
         super(FrequencyAdaptationLayer, self).__init__()
@@ -217,7 +217,7 @@ class FrequencyAdaptationLayer(nn.Module):
         self.amp_scale = amp_scale
         self.phase_scale = phase_scale
         
-        # 幅值调节 MLP
+        # Amplitude adjustment MLP.
         self.amp_mlp = nn.Sequential(
             nn.Linear(self.freq_len, hidden_dim),
             nn.ReLU(),
@@ -225,7 +225,7 @@ class FrequencyAdaptationLayer(nn.Module):
             nn.Tanh()
         )
         
-        # 相位调节 MLP
+        # Phase adjustment MLP.
         self.phase_mlp = nn.Sequential(
             nn.Linear(self.freq_len, hidden_dim),
             nn.ReLU(),
@@ -233,7 +233,7 @@ class FrequencyAdaptationLayer(nn.Module):
             nn.Tanh()
         )
 
-        # 最后一层权重和偏置置零，确保初始状态为恒等映射 (Identity)
+        # Zero-initialize the final layers so the initial mapping is identity.
         nn.init.zeros_(self.amp_mlp[2].weight)
         nn.init.zeros_(self.amp_mlp[2].bias)
         nn.init.zeros_(self.phase_mlp[2].weight)
@@ -246,16 +246,16 @@ class FrequencyAdaptationLayer(nn.Module):
         amp = torch.abs(fft_x)
         phase = torch.angle(fft_x)
         
-        # 1. 计算 Delta
+        # Predict amplitude and phase corrections.
         delta_amp = self.amp_mlp(amp) * self.amp_scale  
-        # 相位变化范围映射到 [-phase_scale * pi, phase_scale * pi]
+        # Bound the phase correction to [-phase_scale * pi, phase_scale * pi].
         delta_phase = self.phase_mlp(phase) * self.phase_scale * math.pi 
         
-        # 2. 叠加修正 (幅值乘法缩放，相位加法偏移)
+        # Apply multiplicative amplitude and additive phase corrections.
         new_amp = amp * (1.0 + delta_amp)
         new_phase = phase + delta_phase
         
-        # 3. iFFT 反变换
+        # Reconstruct the time-domain signal.
         new_fft = torch.polar(new_amp, new_phase)
         x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
         
@@ -281,8 +281,8 @@ class ChannelIndependentLinear(nn.Module):
 
 class FrequencyAdaptationLayer_Independent(nn.Module):
     """
-    频域自适应层 (Channel-Independent 完全独立修复版)
-    Phase 分支使用 sin/cos 环形表示，并只在低频 phase_modes 内学习扰动。
+    Channel-independent frequency adaptation with circular phase features.
+    The phase branch adapts only the first ``phase_modes`` frequency bins.
     """
     def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, phase_modes=None, hidden_dim=64):
         super(FrequencyAdaptationLayer_Independent, self).__init__()
@@ -293,7 +293,7 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
         self.phase_modes = min(phase_modes or self.freq_len, self.freq_len)
         self._last_delta_phase = None
         
-        # 幅值调节 MLP (通道独立)
+        # Channel-independent amplitude adjustment.
         self.amp_mlp = nn.Sequential(
             ChannelIndependentLinear(channels, self.freq_len, hidden_dim),
             nn.ReLU(),
@@ -301,7 +301,7 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
             nn.Tanh()
         )
         
-        # 相位用 sin/cos 环形表示，仅在低频窗口内学习扰动，避免 angle 的 -pi/pi 跳变。
+        # Circular phase features avoid the discontinuity between -pi and pi.
         self.phase_mlp = nn.Sequential(
             ChannelIndependentLinear(channels, self.phase_modes * 2, hidden_dim),
             nn.ReLU(),
@@ -309,7 +309,7 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
             nn.Tanh()
         )
 
-        # 最后一层初始化为 0
+        # Zero initialization makes the initial transformation an identity.
         nn.init.zeros_(self.amp_mlp[2].weight)
         nn.init.zeros_(self.amp_mlp[2].bias)
         nn.init.zeros_(self.phase_mlp[2].weight)
@@ -330,7 +330,7 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
         delta_phase[..., :self.phase_modes] = delta_phase_low
         self._last_delta_phase = delta_phase.detach()
         
-        # 幅值乘法，相位加法
+        # Apply multiplicative amplitude and additive phase corrections.
         new_amp = amp * (1.0 + delta_amp)
         new_phase = phase + delta_phase
         
@@ -341,36 +341,31 @@ class FrequencyAdaptationLayer_Independent(nn.Module):
     
 class FrequencyAdaptationLayer_linear(nn.Module):
     """
-    频域自适应层 (Linear 版本)
-    将原来的 MLP 替换为单层 Linear 映射，用于消融实验测试。
-    1. 将时域信号转换到频域 (FFT)
-    2. 使用 Linear 预测 Δ幅值 和 Δ相位
-    3. 叠加 Δ 并反变换回时域 (iFFT)
+    Linear frequency adaptation layer used in ablation experiments.
+    It predicts amplitude and phase corrections from the input spectrum.
     """
-    # 注意：这里删除了 hidden_dim 参数，因为单层 Linear 不需要隐藏层
+    # A single linear layer does not require a hidden dimension.
     def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1):
         super(FrequencyAdaptationLayer_linear, self).__init__()
         
-        # rfft 后的频率维度长度
+        # Number of frequency bins after rFFT.
         self.freq_len = seq_len // 2 + 1
         self.amp_scale = amp_scale
         self.phase_scale = phase_scale
         
-        # 幅值调节 Linear
-        # 直接从 freq_len 映射到 freq_len，相当于一个最简单的线性组合变换
+        # Map amplitude coefficients across frequency bins.
         self.amp_linear = nn.Sequential(
             nn.Linear(self.freq_len, self.freq_len),
-            nn.Tanh() # 强烈建议保留 Tanh，限制幅度变化的范围，防止反变换时梯度爆炸
+            nn.Tanh()
         )
         
-        # 相位调节 Linear
+        # Map phase coefficients across frequency bins.
         self.phase_linear = nn.Sequential(
             nn.Linear(self.freq_len, self.freq_len),
-            nn.Tanh() # 限制相位变化的范围 (-1, 1)
+            nn.Tanh()
         )
 
-        # 初始化为 0，保证初始状态下是对等变换 (Identity)
-        # 这样刚开始训练时不会破坏原始数据分布
+        # Zero initialization preserves the input at the start of training.
         for m in self.amp_linear.modules():
             if isinstance(m, nn.Linear):
                 nn.init.constant_(m.weight, 0)
@@ -384,22 +379,22 @@ class FrequencyAdaptationLayer_linear(nn.Module):
     def forward(self, x):
         # x: [Batch, Channel, Seq_Len]
         
-        # 1. FFT 变换
+        # Transform the input to the frequency domain.
         fft_x = torch.fft.rfft(x, dim=-1) 
         
-        # 提取幅值和相位
+        # Separate amplitude and phase.
         amp = torch.abs(fft_x)
         phase = torch.angle(fft_x)
         
-        # 2. 计算 Delta (直接使用单层 Linear)
+        # Predict bounded amplitude and phase corrections.
         delta_amp = self.amp_linear(amp) * self.amp_scale  
         delta_phase = self.phase_linear(phase) * self.phase_scale 
         
-        # 3. 叠加修正
+        # Apply the corrections.
         new_amp = amp * (1 + delta_amp)
         new_phase = phase * (1 + delta_phase)
         
-        # 4. 组合并反变换 iFFT
+        # Reconstruct the time-domain signal.
         new_fft = torch.polar(new_amp, new_phase)
         x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
         
@@ -407,18 +402,17 @@ class FrequencyAdaptationLayer_linear(nn.Module):
 
 class TransformerAdapter(nn.Module):
     """
-    频域自适应的 Transformer 核心组件
-    把每一个频率点当作一个 Token，利用 Self-Attention 捕捉全局频率的非线性相关性
+    Transformer module that models interactions between frequency bins.
     """
     def __init__(self, freq_len, d_model=16, nhead=4, num_layers=1):
         super().__init__()
-        # 1. 维度扩增：将单维度的标量特征投射到 d_model 维度
+        # Project each scalar frequency coefficient to the model dimension.
         self.proj_in = nn.Linear(1, d_model)
         
-        # 2. 位置编码：由于频率本身具有绝对的顺序意义（低频到高频），加入可学习的位置编码
+        # Encode the ordered frequency-bin positions.
         self.pos_embed = nn.Parameter(torch.zeros(1, freq_len, d_model))
         
-        # 3. Transformer 编码器层
+        # Model interactions between frequency bins.
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, 
             nhead=nhead, 
@@ -428,11 +422,11 @@ class TransformerAdapter(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
-        # 4. 降维输出：将 d_model 投射回 1，并用 Tanh 限制范围
+        # Project back to one bounded correction per frequency bin.
         self.proj_out = nn.Linear(d_model, 1)
         self.tanh = nn.Tanh()
 
-        # 初始化为 0，保证初始状态是对等变换 (Identity mapping)
+        # Zero initialization makes the initial mapping the identity.
         nn.init.constant_(self.proj_out.weight, 0)
         nn.init.constant_(self.proj_out.bias, 0)
 
@@ -440,27 +434,26 @@ class TransformerAdapter(nn.Module):
         # x shape: [Batch, Channel, Freq_Len]
         B, C, F = x.shape
         
-        # 将 Batch 和 Channel 展平，作为独立的样本序列输入
+        # Treat each batch-channel pair as an independent sequence.
         x = x.view(B * C, F, 1)  # [B*C, Freq_Len, 1]
         
-        # 投影并加上位置编码
+        # Project coefficients and add positional embeddings.
         x = self.proj_in(x) + self.pos_embed
         
-        # Self-Attention 交互
+        # Apply self-attention across frequencies.
         x = self.transformer(x)
         
-        # 映射回单维并激活
+        # Predict one correction per frequency bin.
         x = self.proj_out(x).squeeze(-1)  # [B*C, Freq_Len]
         x = self.tanh(x)
         
-        # 恢复原有形状
+        # Restore the original batch and channel dimensions.
         return x.view(B, C, F)
 
 
 class FrequencyAdaptationLayer_transformer(nn.Module):
     """
-    频域自适应层 (Transformer / Self-Attention 版本)
-    用于消融实验，证明 MLP 是性能与复杂度的最佳平衡点。
+    Transformer-based frequency adaptation layer for ablation experiments.
     """
     def __init__(self, seq_len, channels, amp_scale=0.1, phase_scale=0.1, d_model=16, nhead=4):
         super(FrequencyAdaptationLayer_transformer, self).__init__()
@@ -469,26 +462,26 @@ class FrequencyAdaptationLayer_transformer(nn.Module):
         self.amp_scale = amp_scale
         self.phase_scale = phase_scale
         
-        # 使用 Transformer 替换原来的 MLP
+        # Replace the MLP branches with frequency transformers.
         self.amp_adapter = TransformerAdapter(self.freq_len, d_model=d_model, nhead=nhead)
         self.phase_adapter = TransformerAdapter(self.freq_len, d_model=d_model, nhead=nhead)
 
     def forward(self, x):
-        # 1. FFT 变换
+        # Transform the input to the frequency domain.
         fft_x = torch.fft.rfft(x, dim=-1) 
         
         amp = torch.abs(fft_x)
         phase = torch.angle(fft_x)
         
-        # 2. 计算 Delta (使用 Transformer)
+        # Predict amplitude and phase corrections.
         delta_amp = self.amp_adapter(amp) * self.amp_scale
         delta_phase = self.phase_adapter(phase) * self.phase_scale
         
-        # 3. 叠加修正
+        # Apply the corrections.
         new_amp = amp * (1 + delta_amp)
         new_phase = phase * (1 + delta_phase)
         
-        # 4. iFFT 反变换
+        # Reconstruct the time-domain signal.
         new_fft = torch.polar(new_amp, new_phase)
         x_adapted = torch.fft.irfft(new_fft, n=x.shape[-1], dim=-1)
         

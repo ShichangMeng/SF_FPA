@@ -55,6 +55,7 @@ class Trainer(AbstractTrainer):
 
                 # Load data
                 self.load_data(src_id, trg_id)
+                self.current_source_id, self.current_target_id, self.current_run_id = src_id, trg_id, run_id
 
                 # Train model
                 non_adapted_model, last_adapted_model, best_adapted_model = self.train_model()
@@ -62,22 +63,7 @@ class Trainer(AbstractTrainer):
                 # Save checkpoint
                 self.save_checkpoint(self.home_path, self.scenario_log_dir, non_adapted_model, last_adapted_model,
                                      best_adapted_model)
-                # plot_umap_before_after(
-                #     algorithm=self.algorithm, 
-                #     src_only_model=non_adapted_model, 
-                #     adapted_model=best_adapted_model, 
-                #     trg_dataloader=self.trg_test_dl, # 使用 Target Test 绘制更能说明泛化性
-                #     save_path=f"vis/1004/umap_src_{src_id}_trg_{trg_id}_{run_id}.png",
-                #     num_classes=self.dataset_configs.num_classes,
-                #     class_names=self.dataset_configs.class_names,
-                # )
-                # plot_frequency_motivation_fig(
-                #     algorithm=self.algorithm,
-                #     adapted_model=best_adapted_model,  # <-- 传入最佳权重
-                #     src_dataloader=self.src_train_dl,
-                #     trg_dataloader=self.trg_test_dl,
-                #     save_path=f"vis/motivation/src_{src_id}_trg_{trg_id}_frequency_alignment.png",
-                # )
+
                 # Calculate risks and metrics
                 metrics = self.calculate_metrics()
                 risks = self.calculate_risks()
@@ -115,8 +101,16 @@ if __name__ == "__main__":
     # ========= Experiment settings =============
     parser.add_argument('--num_runs', default=3, type=int, help='Number of consecutive run with different seeds')
     parser.add_argument('--device', default="cuda", type=str, help='cpu or cuda')
+    parser.add_argument('--source_checkpoint_root', default=None, type=str,
+                        help='Load each scenario/seed source model from this algorithm checkpoint directory and skip pretraining')
+    parser.add_argument('--add_fal', action='store_true',
+                        help='Add trainable FAL while freezing encoder weights; use the selected baseline update loss')
 
     args = parser.parse_args()
+    if args.add_fal and not args.source_checkpoint_root:
+        parser.error('--add_fal requires --source_checkpoint_root')
+    if args.add_fal and args.da_method not in ('SHOT', 'AaD', 'NRC'):
+        parser.error('--add_fal is currently implemented for SHOT, AaD, and NRC')
 
     trainer = Trainer(args)
     trainer.train()
