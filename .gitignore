@@ -26,6 +26,8 @@ nohup.out
 /figures/
 /.archive/
 /.tools/
+/misc/
+/rebuttal.md
 /process_data.py
 /boiler_sf_fpa_probe.py
 /eeg_sf_fpa_sweep.py

@@ -29,7 +29,7 @@ Obtain the original datasets from their respective providers and follow the prov
 
 - WISDM activity-recognition data: [Fordham WISDM Lab dataset page](https://www.cis.fordham.edu/wisdm/dataset.php). Follow the source page's attribution instructions and retain its README when redistributing source data.
 - FD/MFD bearing dataset: [Data repository record](https://researchdata.ntu.edu.sg/dataset.xhtml?persistentId=doi:10.21979/N9/PU85XN). Cite the dataset and the AdaTime benchmark paper.
-- Boiler simulated fault dataset: [IEEE DataPort record](https://ieee-dataport.org/open-access/simulated-boiler-data-fault-detection-and-classification), DOI `10.21227/awav-bn36`. Cite Shohet, Kandil, and McArthur (2019).
+- Boiler: this project uses the preprocessed three-boiler dataset distributed in the [SASA repository](https://github.com/DMIRLAB-Group/SASA/tree/main/datasets/Boiler), not the separate IEEE DataPort simulated-boiler dataset. The SASA paper describes measurements from three boilers recorded from 2014-03-24 to 2016-11-30, with each boiler treated as a domain ([Cai et al., AAAI 2021](https://ojs.aaai.org/index.php/AAAI/article/view/16846)). This dataset is not described as simulation-generated. Cite SASA and the original Boiler data source when publishing results.
 
 Prepared tensors remain local and are ignored by Git. The bundles are approximately 2.6 GB in total; FD and Boiler contain individual files larger than GitHub's ordinary 100 MB file limit. `.gitattributes` configures these directories for Git LFS if redistribution is approved. Confirm dataset terms and LFS quota before intentionally adding any files.
 

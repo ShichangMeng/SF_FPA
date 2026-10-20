@@ -2,11 +2,13 @@
 
 This repository contains the code for **SF-FPA**, a source-free domain adaptation method that learns sample-dependent amplitude and phase corrections at the input spectrum while keeping the source encoder and classifier weights frozen. The project also includes implementations of several SFDA baselines and an optional FAL adapter for SHOT, AaD, and NRC.
 
+This codebase builds on the [MAPU framework](https://github.com/mohamedr002/MAPU_SFDA_TS).
+
 ## Methods
 
-The main training entry points are `trainers/train.py` and `trainers/test.py`. The algorithms configured for the WISDM, FD, and Boiler experiments include SHOT, AaD, NRC, MAPU, TemSR, CE-SFDA (`CESFDA` in code), SAFA, and SF-FPA. The optional baseline+FAL path is implemented for SHOT, AaD, and NRC, retaining each method's target update objective.
+The main training entry points are `trainers/train.py` and `trainers/test.py`. The algorithms configured for the WISDM, FD, and Boiler experiments include SHOT, AaD, NRC, MAPU, TemSR, CE-SFDA (`CESFDA` in code), SAFA, and SF-FPA. The optional baseline+FAL path is implemented and runnable for SHOT, AaD, and NRC through `scripts/run_baseline_fal.sh`, retaining each method's target update objective.
 
-TFDA is not implemented in this repository; its reported baseline results use a separate implementation and cannot be reproduced by the entry points here.
+TFDA is not reimplemented in this repository. TFDA baseline results were obtained using the [authors' TFDA repository](https://github.com/furqon3009/TFDA).
 
 ## Environment
 
@@ -61,9 +63,3 @@ bash scripts/run_baseline_fal.sh WISDM SHOT ../runs/WISDM/SHOT runs_fal
 ```
 
 Replace `SHOT` with `AaD` or `NRC`, and use the corresponding source checkpoint directory. The script accepts optional output directory, device, and run-count arguments. FAL is initialized with the dataset's SF-FPA spectral settings; encoder parameters are frozen, and the baseline's classifier update policy and target loss are retained. The source checkpoint directory must contain `<source>_to_<target>_run_<seed>/checkpoint.pt` for every configured scenario and seed.
-
-## Outputs and Git Hygiene
-
-Training and evaluation outputs are written under the selected `--save_dir`, grouped by dataset and `--run_description`. They include checkpoints, logs, and metric CSV files; these are local experiment artifacts and are excluded from Git. Model weights and experiment results are not required to run the source code: training starts from the source split unless `--source_checkpoint_root` is explicitly supplied.
-
-Do not commit checkpoints, logs, result CSVs, W&B runs, generated experiment folders, or local dataset copies. Large prepared datasets can be added separately through Git LFS only after their licensing and hosting quota are confirmed. Paper source and rendered figures are maintained separately from this code repository.
